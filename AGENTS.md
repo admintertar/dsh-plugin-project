@@ -1,5 +1,7 @@
 # Development guidelines
 
+- Repository migration is complete as of 2026-09-19. All further development, fixes, builds and verification must use the public `dsh-plugin-project` and companion `dsh-project-desktop` repositories in their shared public workspace.
+- Previous private repositories and the old Desktop fork are archival references only. Earlier instructions to develop or push there are superseded; do not copy private history, local configuration or private examples into the public repositories.
 - Target only the stable versions pinned in `upstream.json`; beta metadata is historical regression material.
 - Keep plugin features in this repository and window/application ownership in `dsh-project-desktop`. Official source snapshots remain unmodified.
 - Reuse official UI primitives, locale, theme, FlatList/session rows and document preview slots. Record private-source adaptations and preserve third-party notices.
