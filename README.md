@@ -71,6 +71,8 @@ npm run test:compatibility -- ../dsh-project-desktop
 
 开发边界、检查命令及平台限制见 [开发说明](docs/development.md)。
 
+界面开发须遵循 [前端组件与交互规范](docs/frontend-guidelines.md)，包括官方组件复用、表单/弹窗布局、滚动稳定性和验收要求。
+
 ## 权利与第三方代码
 
 自有代码目前为**公开可读、保留其他权利**，未授予通用的使用、修改或再分发许可。详见 [LICENSE](LICENSE)；法律、托管平台条款及第三方许可证授予的权利不受该声明限制。`private: true` 防止误发布到 npm，不代表 Git 托管仓库必须私有。

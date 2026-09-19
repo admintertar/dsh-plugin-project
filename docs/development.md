@@ -25,4 +25,6 @@ The older `desktop-development.ts`, Electron harnesses and `tests/desktop.integr
 
 ## Maintainer boundaries
 
+Before UI work, read the required [frontend guidelines](frontend-guidelines.md) for official component reuse, shared controls, layout, scrolling and native acceptance.
+
 Host logic lives in `src/`, UI composition in `src/client/`, and attributed upstream MCP adaptations in `src/vendor/`. Reuse pinned official primitives, locale, theme and preview components. Keep shared project records separate from machine-local configuration. Never alter a live Profile while preparing dependencies. Read [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) when updating adapted upstream material.

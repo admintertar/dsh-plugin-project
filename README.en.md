@@ -71,6 +71,8 @@ npm run test:compatibility -- ../dsh-project-desktop
 
 See [development notes](docs/development.md) for checks, boundaries and platform limitations.
 
+UI work must follow the [frontend guidelines](docs/frontend-guidelines.md) (detailed requirements in Chinese), covering official component reuse, forms, modals, stable scrolling and acceptance.
+
 ## Rights and third-party code
 
 Original code is currently **publicly readable, with all other rights reserved**; there is no general grant to use, modify or redistribute it. See [LICENSE](LICENSE). Rights under applicable law, hosting platform terms and third-party licenses are unaffected. `private: true` prevents accidental npm publication; it does not require a private Git repository.
