@@ -1,0 +1,4 @@
+.DS_Store
+/mcp/local.yaml
+/tasks/.write-lock
+/tasks/.write-lock.recovery

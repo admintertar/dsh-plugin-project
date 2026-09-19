@@ -1,0 +1,6 @@
+# Keep the official sidebar and contribute Project content through its slots.
+- insert:
+    - id: project
+      name: dsh-plugin-project
+      config:
+        manifestPath: !!js process.env.DSH_PROJECT_MANIFEST

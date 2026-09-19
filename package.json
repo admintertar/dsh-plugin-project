@@ -1,0 +1,99 @@
+{
+  "name": "dsh-plugin-project",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "description": "Project and resource navigation for DeepSeek Harness",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dsh": {
+    "bundle": {"patch": "./cordis.patch.yml"},
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "scripts": {
+    "setup": "node scripts/check-node.mjs && node scripts/setup.mjs",
+    "build": "node scripts/check-node.mjs && node scripts/build.mjs",
+    "typecheck": "node scripts/check-node.mjs && tsc --noEmit",
+    "test": "node scripts/check-node.mjs && tsx --test tests/*.test.ts",
+    "test:desktop": "node scripts/check-node.mjs && node scripts/check-compatibility.mjs --desktop-only",
+    "test:compatibility": "node scripts/check-node.mjs && node scripts/check-compatibility.mjs",
+    "start": "node scripts/check-node.mjs && node scripts/start.mjs",
+    "desktop": "node scripts/check-node.mjs && node scripts/desktop.ts",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "engines": {"node": "^22.19.0 || >=24.0.0"},
+  "dependencies": {
+    "yaml": "2.8.1",
+    "zod": "4.1.5",
+    "@modelcontextprotocol/sdk": "1.30.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-home-paths": "0.1.5-rc.2 || 0.1.6-alpha.1",
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-mcp-client": "0.1.5-rc.2 || 0.1.6-alpha.1",
+    "@deepseek-ai/dsh-skill": "0.1.5-rc.2 || 0.1.6-alpha.1",
+    "@deepseek-ai/dsh-skill-filesystem": "0.1.5-rc.2 || 0.1.6-alpha.1",
+    "@deepseek-ai/dsh-session": "0.1.5-rc.2 || 0.1.6-alpha.1",
+    "@deepseek-ai/dsh-tool-present": "0.1.5-rc.2 || 0.1.6-alpha.1",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.2 || 0.1.6-alpha.1",
+    "@deepseek-ai/dsh-attachment": "0.1.5-rc.2 || 0.1.6-alpha.1",
+    "@deepseek-ai/dsh-subprocess": "0.1.5-rc.2 || 0.1.6-alpha.1",
+    "@deepseek-ai/dsh-timeout": "0.1.5-rc.2 || 0.1.6-alpha.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-client-ui-dockkit": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-home-paths": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-agent-presets": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-session-projection": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-session-query": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-scope": "0.1.5-rc.2",
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-mcp-client": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-skill": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-skill-filesystem": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-session": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-tool-present": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
+    "@types/node": "22.18.6",
+    "@types/react": "18.3.24",
+    "@types/react-dom": "18.3.7",
+    "esbuild": "0.25.10",
+    "happy-dom": "20.14.5",
+    "immer": "^10.2.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "@deepseek-ai/dsh-attachment": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-subprocess": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-timeout": "0.1.5-rc.2",
+    "zustand": "~4.4.7"
+  }
+}

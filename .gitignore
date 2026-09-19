@@ -1,0 +1,29 @@
+# Dependencies, build products and isolated development profiles
+node_modules/
+/lib/
+/.dev/
+/*.tgz
+/*.zip
+/*.bundle
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+
+# Project shared metadata remains tracked; ignore only local/temporary records
+**/.agent-project/local.yaml
+**/.agent-project/task-sources.yaml
+**/.agent-project/resource-transaction.json
+**/mcp/local.yaml
+**/tasks/.write-lock
+**/tasks/.write-lock.recovery

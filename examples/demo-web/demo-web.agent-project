@@ -1,0 +1,17 @@
+schemaVersion: 1
+id: demo-web
+name: Demo Web
+description: 虚构的前后端示例，用于了解项目资源、记忆和任务的组织方式。
+resources:
+  - id: backend
+    name: Backend
+    type: local
+    path: resources/backend
+  - id: web
+    name: Web
+    type: local
+    path: resources/web
+memory:
+  - id: architecture
+    name: 示例架构
+    path: memory/architecture.md

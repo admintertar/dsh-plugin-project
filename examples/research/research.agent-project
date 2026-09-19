@@ -1,0 +1,13 @@
+schemaVersion: 1
+id: research
+name: Research
+description: 独立的虚构研究项目，用于验证项目上下文隔离。
+resources:
+  - id: notes
+    name: Notes
+    type: local
+    path: notes
+memory:
+  - id: conventions
+    name: 研究约定
+    path: memory/conventions.md
