@@ -56,7 +56,10 @@ html[data-project-panel-switching] [data-sidebar-right-panel]{transition:none!im
 .project-catalog-context{font-size:12px;overflow-wrap:anywhere}
 /* ui-agent-preset/AgentPresetSection.module.css: private roster/card chrome with a public Button/Modal reader. */
 .project-panel .project-tool-group{margin-bottom:32px}.project-panel .project-tool-group>h2{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary)}
-.project-tool-grid,.project-mcp-grid,.project-skill-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,363px),1fr));grid-auto-rows:1fr;gap:12px}
+/* Card grids cap the track at half the row so a narrow panel (small window with an
+   expanded sidebar) keeps two columns instead of collapsing to one; 7px is half the
+   12px gap plus rounding slack. Cards stay 363px once the row can afford two. */
+.project-tool-grid,.project-mcp-grid,.project-skill-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(363px,calc(50% - 7px)),1fr));grid-auto-rows:1fr;gap:12px}
 .project-tool-card,.project-mcp-card,.project-skill-card{min-width:0;display:flex;flex-direction:column;border:.5px solid var(--dsw-alias-border-l4);border-radius:20px;background:transparent;transition:border-color .16s,background .16s}
 .project-tool-card:hover,.project-mcp-card:hover,.project-skill-card:hover{background:var(--dsw-alias-interactive-bg-hover)}
 button.project-tool-main{box-sizing:border-box;flex:1;width:100%;height:auto;min-width:0;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:8px;padding:14px 16px 12px;border:0;border-radius:20px;background:none;font:inherit;text-align:left;white-space:normal;color:var(--dsw-alias-label-primary)}
