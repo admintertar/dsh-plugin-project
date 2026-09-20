@@ -1,9 +1,9 @@
-import {useRef, useState, type ReactNode} from 'react';
-import {Button, IconBranchOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
-import type {ManagedResource} from '../resource-contract.ts';
+import {useEffect, useRef, useState, type ReactNode} from 'react';
+import {Button, IconBranchOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, IconRightUpOutline16, Input, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
+import type {ManagedResource, ResourceBranches} from '../resource-contract.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
-import {ProjectScrollableModal, ProjectSettingRow} from './ProjectControls.tsx';
-import {canUpdateResource, resourceErrorText, resourceSyncLabel} from './resource-ui.ts';
+import {ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
+import {canCheckResource, canCommitResource, canPushResource, canSwitchResource, canUpdateResource, resourceErrorText, resourceSyncLabel} from './resource-ui.ts';
 
 function resourceStatusLabel(item: ManagedResource) {
   return item.status === 'ready' ? 'resourceReady' : item.status === 'unbound' ? 'resourceUnbound' : item.status === 'missing' ? 'missing' : 'resourceUnavailable';
@@ -36,10 +36,18 @@ function ResourceMetadata({icon, text, tooltip}: {icon: ReactNode; text: string;
 
 /** Shared Agent Preset card adaptation; management actions belong to the resource page. */
 export function ResourceCard({item, root, t, children, syncActions, syncError}: {item: ManagedResource; root: string; t: CapabilityTranslate; children?: ReactNode; syncError?: string;
-  syncActions?: {disabled: boolean; check(): void; update(): void}}) {
+  syncActions?: {disabled: boolean; check(): void; update(): void; push(): void; commit(message: string): void; switchBranch(branch: string): void;
+    loadBranches(): Promise<ResourceBranches | undefined>}}) {
   const [viewing, setViewing] = useState(false);
+  const [branches, setBranches] = useState<ResourceBranches>();
+  const [message, setMessage] = useState('');
   const opener = useRef<HTMLButtonElement | null>(null);
   const close = () => {setViewing(false); opener.current?.focus();};
+  // Branch names are only needed while the details dialog is open, so read them on open.
+  const showDetails = (target: HTMLButtonElement) => {
+    opener.current = target; setViewing(true);
+    void syncActions?.loadBranches().then(setBranches);
+  };
   const gitReady = item.type === 'git' && item.status === 'ready';
   const sync = syncError ? {...item.git?.sync, status: 'error' as const, error: syncError}
     : item.git?.sync ?? (gitReady && !item.url ? {status: 'unlinked' as const} : undefined);
@@ -51,6 +59,8 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
     : sync?.status === 'detached' ? t('resourceSyncDetachedBody') : t('resourceSyncBody');
   const tone = gitReady ? sync?.status === 'unlinked' || sync?.status === 'unborn' ? 'neutral' : sync?.status === 'current' && !sync.dirty && !sync.error && !sync.inProgress ? 'success' : 'warning'
     : item.status === 'ready' ? 'success' : 'warning';
+  // A successful commit empties the working tree; drop the draft message with it.
+  useEffect(() => {if (!sync?.dirty) setMessage('');}, [sync?.dirty]);
   return <>
     <article className="project-mcp-card project-resource-card" aria-label={item.name}>
       <div className="project-mcp-card-body">
@@ -67,19 +77,24 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
       </div>
       <div className="project-mcp-card-footer">
         <Button className="project-resource-details-action" size="sm" aria-haspopup="dialog" aria-label={`${t('resourceDetails')}: ${item.name}`}
-          onClick={event => {opener.current = event.currentTarget; setViewing(true);}}>{t('resourceViewDetails')}</Button>
+          onClick={event => showDetails(event.currentTarget)}>{t('resourceViewDetails')}</Button>
         {syncActions && <>
-          <Tooltip label={t('resourceSyncCheck')} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
-            icon={<IconRefreshOutline16 />} aria-label={`${t('resourceSyncCheck')}: ${item.name}`} disabled={syncActions.disabled} onClick={syncActions.check} /></span></Tooltip>
+          {canCheckResource(item) && <Tooltip label={t('resourceSyncCheck')} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
+            icon={<IconRefreshOutline16 />} aria-label={`${t('resourceSyncCheck')}: ${item.name}`} disabled={syncActions.disabled} onClick={syncActions.check} /></span></Tooltip>}
           <Tooltip label={canUpdateResource(sync) ? t('resourceSyncUpdate') : syncDescription} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
             icon={<IconDownloadOutline16 />} aria-label={`${t('resourceSyncUpdate')}: ${item.name}`} disabled={syncActions.disabled || !canUpdateResource(sync)} onClick={syncActions.update} /></span></Tooltip>
+          {canPushResource(sync) && <Tooltip label={t('resourceSyncPush')} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
+            icon={<IconRightUpOutline16 />} aria-label={`${t('resourceSyncPush')}: ${item.name}`} disabled={syncActions.disabled} onClick={syncActions.push} /></span></Tooltip>}
         </>}
         {children}
       </div>
     </article>
     <ProjectScrollableModal open={viewing} title={t('resourceDetails')} closeLabel={t('close')} onClose={close}
-      footer={<>{syncActions && <><Button variant="outline" disabled={syncActions.disabled} onClick={syncActions.check}>{t('resourceSyncCheck')}</Button>
-        <Button variant="outline" disabled={syncActions.disabled || !canUpdateResource(sync)} onClick={syncActions.update}>{t('resourceSyncUpdate')}</Button></>}
+      footer={<>{syncActions && <>{canCheckResource(item) && <Button variant="outline" disabled={syncActions.disabled} onClick={syncActions.check}>{t('resourceSyncCheck')}</Button>}
+        <Button variant="outline" disabled={syncActions.disabled || !canUpdateResource(sync)} onClick={syncActions.update}>{t('resourceSyncUpdate')}</Button>
+        <Button variant="outline" disabled={syncActions.disabled || !canCommitResource(sync) || message.trim().length === 0}
+          onClick={() => syncActions.commit(message)}>{t('resourceSyncCommit')}</Button>
+        {canPushResource(sync) && <Button variant="outline" disabled={syncActions.disabled} onClick={syncActions.push}>{t('resourceSyncPush')}</Button>}</>}
         <Button variant="primary" autoFocus onClick={close}>{t('close')}</Button></>}>
       <div className="project-capability-form project-resource-details">
         <ProjectSettingRow title={t('resourceName')} layout="stacked"><span>{item.name}</span></ProjectSettingRow>
@@ -89,7 +104,15 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
           <code>{item.path ?? t('resourceUnbound')}</code>
         </ProjectSettingRow>
         {item.url && <ProjectSettingRow title={t('resourceUrl')} layout="stacked"><code>{item.url}</code></ProjectSettingRow>}
-        {item.git?.branch && <ProjectSettingRow title={t('resourceCurrentBranch')} layout="stacked"><code>{item.git.branch}</code></ProjectSettingRow>}
+        {gitReady && branches && branches.local.length > 0
+          ? <ProjectSettingRow title={t('resourceCurrentBranch')} description={t('resourceSwitchBody')}>
+              <ProjectSelect label={t('resourceCurrentBranch')} value={branches.current ?? ''}
+                disabled={syncActions?.disabled === true || !canSwitchResource(sync)}
+                options={[...(branches.current ? [] : [{value: '', label: t('resourceSyncDetached')}]),
+                  ...branches.local.map(name => ({value: name, label: name}))]}
+                onChange={value => {if (value && value !== branches.current) syncActions?.switchBranch(value);}} />
+            </ProjectSettingRow>
+          : item.git?.branch && <ProjectSettingRow title={t('resourceCurrentBranch')} layout="stacked"><code>{item.git.branch}</code></ProjectSettingRow>}
         {gitReady && <>
           <ProjectSettingRow title={t('resourceSyncStatus')} description={syncDescription} layout="stacked"><span role="status">{label}</span></ProjectSettingRow>
           {sync?.upstream && <ProjectSettingRow title={t('resourceSyncUpstream')} layout="stacked"><code>{sync.upstream}</code></ProjectSettingRow>}
@@ -97,6 +120,11 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
           {sync?.ahead !== undefined && <ProjectSettingRow title={t('resourceSyncComparison')}><span>{t('resourceSyncCounts', {ahead: sync.ahead, behind: sync.behind ?? 0})}</span></ProjectSettingRow>}
           <ProjectSettingRow title={t('resourceSyncWorkspace')}><span>{sync?.dirty === undefined ? t('resourceSyncUnchecked') : t(sync.dirty ? 'resourceSyncDirty' : 'resourceSyncClean')}</span></ProjectSettingRow>
         </>}
+        {gitReady && syncActions && <ProjectSettingRow title={t('resourceCommitMessage')}
+          description={sync?.dirty ? t('resourceCommitBody') : t('resourceCommitClean')} layout="stacked">
+          <Input aria-label={`${t('resourceCommitMessage')}: ${item.name}`} value={message} maxLength={4096}
+            disabled={syncActions.disabled || !canCommitResource(sync)} onChange={event => setMessage(event.target.value)} />
+        </ProjectSettingRow>}
       </div>
     </ProjectScrollableModal>
   </>;

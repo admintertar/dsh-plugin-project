@@ -69,3 +69,26 @@ test('resource sync requests are independent and failures remain on the affected
     assert.equal(controller.getSnapshot().syncErrors.a, undefined, 'A fresh snapshot replaces transient duplicate-operation errors');
   } finally {controller.dispose();}
 });
+
+test('commit carries the message, switch carries the branch and branch reads stay out of the snapshot', async () => {
+  const bodies: Record<string, unknown>[] = []; const urls: string[] = [];
+  const controller = new ResourceController(() => {}, (async (url: string, init?: RequestInit) => {
+    urls.push(String(url));
+    if (String(url).includes('/branches')) return response({current: 'main', local: ['main', 'work'], remote: ['feature', 'main'], remoteName: 'origin'});
+    if (init?.method === 'POST') {bodies.push(JSON.parse(String(init.body))); return response({accepted: true});}
+    return response(empty);
+  }) as unknown as typeof fetch);
+  try {
+    assert.equal(await controller.sync('root', 'commit', empty.revision, 'panel commit'), true);
+    assert.equal(await controller.sync('root', 'switch', empty.revision, undefined, 'work'), true);
+    assert.equal(await controller.sync('root', 'push', empty.revision), true);
+    assert.deepEqual(bodies[0], {id: 'root', action: 'commit', expectedRevision: empty.revision, message: 'panel commit'});
+    assert.deepEqual(bodies[1], {id: 'root', action: 'switch', expectedRevision: empty.revision, branch: 'work'});
+    // Push takes neither, so the request must not carry an empty message or branch.
+    assert.deepEqual(bodies[2], {id: 'root', action: 'push', expectedRevision: empty.revision});
+    const branches = await controller.branches('root');
+    assert.equal(branches?.current, 'main'); assert.deepEqual(branches?.local, ['main', 'work']); assert.deepEqual(branches?.remote, ['feature', 'main']);
+    assert.ok(urls.some(url => url.endsWith('/branches?id=root')), 'the branch read is a plain GET by resource id');
+    assert.equal(controller.getSnapshot().pending.length, 0);
+  } finally {controller.dispose();}
+});

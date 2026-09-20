@@ -1,4 +1,4 @@
-import {resourceErrorCodes, type ResourceAction, type ResourceCloneRequest, type ResourceInspection, type ResourcesSnapshot} from '../resource-contract.ts';
+import {resourceErrorCodes, type ResourceAction, type ResourceBranches, type ResourceCloneRequest, type ResourceInspection, type ResourcesSnapshot, type ResourceSyncAction} from '../resource-contract.ts';
 import {ResourceAuthController} from './resource-auth-controller.ts';
 
 interface ResourceState {data?: ResourcesSnapshot; error?: string; syncErrors: Readonly<Record<string, string | undefined>>; loading: boolean; pending: readonly string[]}
@@ -49,8 +49,18 @@ export class ResourceController {
   }
   async mutate(action: ResourceAction): Promise<boolean> {return this.post('', action, 'id' in action ? action.id : 'add');}
   async clone(request: ResourceCloneRequest): Promise<boolean> {return this.post('/clone', request, request.id ?? 'add', false);}
-  async sync(id: string, action: 'check' | 'update', expectedRevision: string): Promise<boolean> {
-    return this.post('/sync', {id, action, expectedRevision}, id, false, 'resource');
+  /** `message` belongs to commit and `branch` to switch; the other actions take neither. */
+  async sync(id: string, action: ResourceSyncAction, expectedRevision: string, message?: string, branch?: string): Promise<boolean> {
+    return this.post('/sync', {id, action, expectedRevision, ...(message === undefined ? {} : {message}), ...(branch === undefined ? {} : {branch})},
+      id, false, 'resource');
+  }
+  /** Branch names for the picker. A failed read only hides the picker; the sync state already reports errors. */
+  async branches(id: string): Promise<ResourceBranches | undefined> {
+    if (this.disposed) return undefined;
+    const controller = new AbortController(); this.requests.add(controller);
+    try {return await this.read<ResourceBranches>(`/branches?id=${encodeURIComponent(id)}`, {signal: controller.signal});}
+    catch {return undefined;}
+    finally {this.requests.delete(controller);}
   }
   async operation(id: string, action: 'cancel' | 'register', expectedRevision?: string): Promise<boolean> {
     return this.post(`/operations/${encodeURIComponent(id)}/${action}`, action === 'cancel' ? {} : {expectedRevision}, id);

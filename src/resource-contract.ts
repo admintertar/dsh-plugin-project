@@ -11,6 +11,7 @@ export const resourceErrorCodes = [
   'project-closing', 'operation-interrupted', 'operation-storage-failed',
   'git-sync-busy', 'git-sync-failed', 'git-sync-timeout', 'git-local-changes', 'git-history-diverged',
   'git-no-remote', 'git-no-upstream', 'git-detached', 'git-in-progress', 'git-state-changed', 'git-remote-branch-missing', 'resource-project-root',
+  'git-nothing-to-commit', 'git-commit-message-required', 'git-identity-missing', 'git-push-rejected', 'git-nothing-to-push', 'git-branch-missing',
 ] as const;
 export type ResourceErrorCode = typeof resourceErrorCodes[number];
 export interface ResourceInspection {
@@ -19,9 +20,14 @@ export interface ResourceInspection {
 }
 export interface ResourceGitSync {
   status: 'unlinked' | 'unborn' | 'unchecked' | 'current' | 'behind' | 'ahead' | 'diverged' | 'detached' | 'no-upstream' | 'error';
-  phase?: 'checking' | 'updating';
+  phase?: 'checking' | 'updating' | 'committing' | 'pushing' | 'switching';
   dirty?: boolean; inProgress?: boolean; ahead?: number; behind?: number; upstream?: string;
   checkedAt?: string; updatedAt?: string; error?: string;
+}
+/** Actions that mutate or re-read one resource repository. `branches` is a separate read. */
+export type ResourceSyncAction = 'check' | 'update' | 'commit' | 'push' | 'switch';
+export interface ResourceBranches {
+  current?: string; local: string[]; remote: string[]; remoteName?: string;
 }
 export interface ManagedResource extends ResourceView {git?: {branch?: string; diagnostic?: string; sync?: ResourceGitSync}}
 export type CloneStatus = 'cloning' | 'cancelling' | 'cancelled' | 'failed' | 'pending' | 'completed' | 'interrupted';

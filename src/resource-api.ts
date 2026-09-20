@@ -66,9 +66,16 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
     return {operation};
   });
   register('/sync', ['POST'], async req => {
-    const action = z.object({id, action: z.enum(['check', 'update']), expectedRevision}).strict().parse(await readJsonBody(req));
-    await queue(() => {sync.start(action.id, action.action, action.expectedRevision); return Promise.resolve();});
+    const action = z.object({id, action: z.enum(['check', 'update', 'commit', 'push', 'switch']), expectedRevision,
+      message: z.string().max(4096).optional(), branch: z.string().max(255).optional()}).strict().parse(await readJsonBody(req));
+    // `commit` carries the message and `switch` the target branch; the other actions take neither.
+    const input = action.action === 'commit' ? action.message : action.action === 'switch' ? action.branch : undefined;
+    await queue(() => {sync.start(action.id, action.action, action.expectedRevision, true, input); return Promise.resolve();});
     return {accepted: true};
+  });
+  register('/branches', ['GET'], async req => {
+    const resource = id.parse(new URL(req.url ?? '/', 'http://localhost').searchParams.get('id') ?? '');
+    return sync.branches(resource);
   });
   register('/auth', ['GET', 'POST'], async req => {
     store.revision();

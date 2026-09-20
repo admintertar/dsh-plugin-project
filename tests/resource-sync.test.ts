@@ -335,3 +335,118 @@ test('startup checks run once without changing files; subsequent checks and upda
     assert.equal(f.git('rev-parse', 'HEAD'), latest);
   } finally {await f.cleanup();}
 });
+
+/** The fixture origin is a working repository, so its checked-out branch must accept a push. */
+function allowPushToOrigin(f: Awaited<ReturnType<typeof fixture>>) {
+  f.source('config', 'receive.denyCurrentBranch', 'ignore');
+  // This must stay synchronous for non-push calls: the fixture treats any returned value as an override,
+  // and an async function would answer every fetch with an empty promise.
+  f.override((args, cwd, options) => {
+    if (!args.includes('push')) return undefined;
+    const copy = [...args]; copy[copy.indexOf('--') + 1] = f.outside;
+    return execute('git', copy, {cwd, signal: options?.signal, timeout: 15_000, encoding: 'utf8'}).then(result => result.stdout.trim());
+  });
+}
+/** Commit needs a resolvable identity; the fixture origin is not the machine's global configuration. */
+function giveIdentity(f: Awaited<ReturnType<typeof fixture>>) {
+  f.git('config', 'user.name', 'Fixture'); f.git('config', 'user.email', 'fixture@example.com');
+}
+
+test('commit stages every change, reports the branch ahead and never runs repository hooks', async () => {
+  const f = await fixture();
+  try {
+    giveIdentity(f);
+    assert.equal((await f.act('check')).status, 'current');
+    const marker = join(f.base, 'pre-commit-ran');
+    writeFileSync(join(f.path, '.git/hooks/pre-commit'), `#!/bin/sh\ntouch '${marker}'\n`, {mode: 0o755});
+    writeFileSync(join(f.path, 'README.md'), '# Local edit\n');
+    writeFileSync(join(f.path, 'untracked.txt'), 'new\n');
+    // Read the working tree directly; a snapshot may still be inside its short read cache.
+    assert.notEqual(f.git('status', '--porcelain'), '');
+    await f.sync.start(f.item.id, 'commit', f.store.revision(), true, 'panel commit');
+    const after = await f.state();
+    assert.equal(after.error, undefined); assert.equal(after.dirty, false);
+    assert.equal(after.status, 'ahead'); assert.equal(after.ahead, 1);
+    assert.equal(f.git('log', '-1', '--pretty=%s'), 'panel commit');
+    assert.match(f.git('show', '--name-only', '--pretty=format:', 'HEAD'), /untracked\.txt/);
+    assert.equal(existsSync(marker), false, 'the panel commit must not run repository hooks');
+  } finally {await f.cleanup();}
+});
+
+test('commit refuses an empty message, a clean tree and a missing identity', async () => {
+  const f = await fixture();
+  try {
+    giveIdentity(f);
+    writeFileSync(join(f.path, 'README.md'), '# Local edit\n');
+    await f.sync.start(f.item.id, 'commit', f.store.revision(), true, '   ');
+    assert.equal((await f.state()).error, 'git-commit-message-required');
+    assert.equal(f.git('log', '--pretty=%s'), 'fixture', 'a refused commit leaves history untouched');
+    f.git('config', 'user.email', '');
+    await f.sync.start(f.item.id, 'commit', f.store.revision(), true, 'panel commit');
+    assert.equal((await f.state()).error, 'git-identity-missing');
+    giveIdentity(f);
+    await f.sync.start(f.item.id, 'commit', f.store.revision(), true, 'panel commit');
+    assert.equal((await f.state()).error, undefined);
+    await f.sync.start(f.item.id, 'commit', f.store.revision(), true, 'again');
+    assert.equal((await f.state()).error, 'git-nothing-to-commit');
+  } finally {await f.cleanup();}
+});
+
+test('push advances only a fast-forward, never forces and records the pushed tracking branch', async () => {
+  const f = await fixture();
+  try {
+    allowPushToOrigin(f); giveIdentity(f);
+    assert.equal((await f.act('check')).status, 'current');
+    writeFileSync(join(f.path, 'README.md'), '# Local work\n');
+    await f.sync.start(f.item.id, 'commit', f.store.revision(), true, 'local work');
+    const local = f.git('rev-parse', 'HEAD');
+    await f.sync.start(f.item.id, 'push', f.store.revision());
+    const after = await f.state();
+    assert.equal(after.error, undefined);
+    assert.equal(after.status, 'current'); assert.equal(after.ahead, 0);
+    assert.equal(f.source('rev-parse', 'HEAD'), local);
+    const pushes = f.calls.filter(args => args.includes('push'));
+    assert.equal(pushes.length, 1);
+    assert.equal(pushes[0]!.at(-1), 'main:refs/heads/main');
+    assert.equal(pushes[0]!.some(value => /^--force|^-f$|force-with-lease/.test(value)), false, 'push must never force');
+    assert.equal(f.git('rev-parse', 'refs/remotes/origin/main'), local);
+  } finally {await f.cleanup();}
+});
+
+test('push refuses diverged history and a branch with nothing to push', async () => {
+  const f = await fixture();
+  try {
+    allowPushToOrigin(f); giveIdentity(f);
+    assert.equal((await f.act('check')).status, 'current');
+    await f.sync.start(f.item.id, 'push', f.store.revision());
+    assert.equal((await f.state()).error, 'git-nothing-to-push');
+    writeFileSync(join(f.path, 'README.md'), '# Local work\n');
+    await f.sync.start(f.item.id, 'commit', f.store.revision(), true, 'local work');
+    f.advance(); await f.act('check');
+    assert.equal((await f.state()).status, 'diverged');
+    await f.sync.start(f.item.id, 'push', f.store.revision());
+    assert.equal((await f.state()).error, 'git-history-diverged');
+    assert.equal(f.calls.filter(args => args.includes('push')).length, 0, 'a refused push never reaches Git');
+  } finally {await f.cleanup();}
+});
+
+test('branches lists local and remote names; switching refuses local changes and unknown branches', async () => {
+  const f = await fixture();
+  try {
+    const listed = await f.sync.branches(f.item.id);
+    assert.equal(listed.current, 'main'); assert.equal(listed.remoteName, 'origin');
+    assert.deepEqual(listed.local, ['main']);
+    assert.deepEqual(listed.remote, ['feature', 'main']);
+    f.git('branch', 'work');
+    await f.sync.start(f.item.id, 'switch', f.store.revision(), true, 'work');
+    assert.equal(f.git('symbolic-ref', '--short', 'HEAD'), 'work');
+    await f.sync.start(f.item.id, 'switch', f.store.revision(), true, 'nope');
+    assert.equal((await f.state()).error, 'git-branch-missing');
+    await f.sync.start(f.item.id, 'switch', f.store.revision(), true, '-x');
+    assert.equal((await f.state()).error, 'resource-branch-invalid');
+    writeFileSync(join(f.path, 'README.md'), '# Uncommitted\n');
+    await f.sync.start(f.item.id, 'switch', f.store.revision(), true, 'main');
+    assert.equal((await f.state()).error, 'git-local-changes');
+    assert.equal(f.git('symbolic-ref', '--short', 'HEAD'), 'work', 'a refused switch keeps the current branch');
+  } finally {await f.cleanup();}
+});

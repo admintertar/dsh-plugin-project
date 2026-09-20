@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {ProjectHttpError} from './http.ts';
 import {resourceFailure} from './resource-files.ts';
 import {ResourceGitError, type GitRun} from './resource-git.ts';
-import {validResourceUrl, type ManagedResource, type ResourceGitSync, type ResourcesSnapshot} from './resource-contract.ts';
+import {validResourceUrl, type ManagedResource, type ResourceBranches, type ResourceGitSync, type ResourcesSnapshot, type ResourceSyncAction} from './resource-contract.ts';
 import type {ResourceCloneManager} from './resource-clones.ts';
 import {isProjectRootResource, managedResources} from './resource-scope.ts';
 
@@ -13,7 +13,7 @@ interface Repository {
   target: string; connected: boolean; dirty: boolean; inProgress: boolean; ahead?: number; behind?: number; upstream?: string;
 }
 interface RecordState {key: string; target?: string; checkedAt?: string; updatedAt?: string; error?: string; attemptedAt: number}
-interface ActiveSync {phase: 'checking' | 'updating'; controller: AbortController; done: Promise<void>; interactive: boolean}
+interface ActiveSync {phase: NonNullable<ResourceGitSync['phase']>; controller: AbortController; done: Promise<void>; interactive: boolean}
 const failureCode = (error: unknown): string => error instanceof ProjectHttpError || error instanceof ResourceGitError ? error.code : 'git-sync-failed';
 const operationMarkers = ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply', 'sequencer', 'BISECT_START'];
 
@@ -130,21 +130,134 @@ export class ResourceSyncManager {
   }
   assertMutable(id: string): void {if (this.active.has(id)) resourceFailure('git-sync-busy');}
   invalidate(id: string): void {this.records.delete(id); this.cache.delete(id);}
-  start(id: string, action: 'check' | 'update', expectedRevision: string, interactive = true): Promise<void> {
+  private static readonly phases: Record<ResourceSyncAction, NonNullable<ResourceGitSync['phase']>> =
+    {check: 'checking', update: 'updating', commit: 'committing', push: 'pushing', switch: 'switching'};
+  /** `input` carries the commit message or the target branch, depending on the action. */
+  start(id: string, action: ResourceSyncAction, expectedRevision: string, interactive = true, input?: string): Promise<void> {
     this.open(); this.clones.store.assertRevision(expectedRevision); this.clones.assertMutable(id);
     const existing = this.active.get(id);
     // A manual check may race the automatic check before the next snapshot arrives.
     if (existing?.phase === 'checking' && action === 'check') {existing.interactive ||= interactive; return existing.done;}
     if (existing) resourceFailure('git-sync-busy');
     const item = this.resource(id); const key = this.key(item);
-    if (!item.url) resourceFailure('git-no-remote');
+    // Switching branches is a local operation; every other action needs the configured remote.
+    if (action !== 'switch' && !item.url) resourceFailure('git-no-remote');
     const controller = new AbortController();
-    const active: ActiveSync = {phase: action === 'check' ? 'checking' : 'updating', controller, done: Promise.resolve(), interactive};
+    const active: ActiveSync = {phase: ResourceSyncManager.phases[action], controller, done: Promise.resolve(), interactive};
     this.active.set(id, active);
-    active.done = this.execute(item, key, action, expectedRevision, controller.signal, () => active.interactive).finally(() => {
+    const operation = action === 'check' || action === 'update'
+      ? this.execute(item, key, action, expectedRevision, controller.signal, () => active.interactive)
+      : this.mutate(item, key, action, input, expectedRevision, controller.signal, () => active.interactive);
+    active.done = operation.finally(() => {
       this.cache.delete(id); this.clones.invalidate(); if (this.active.get(id) === active) this.active.delete(id);
     });
     return active.done;
+  }
+  /** Branch names for the picker. Local branches are switchable; remote ones are reference only. */
+  async branches(id: string): Promise<ResourceBranches> {
+    this.open();
+    return this.branchNames(this.resource(id));
+  }
+  private async branchNames(item: ManagedResource, signal?: AbortSignal): Promise<ResourceBranches> {
+    const run: GitRun = (args, cwd) => this.run(args, cwd, {signal: signal ?? this.lifetime.signal, sync: true});
+    const repository = await this.local(item, true, signal);
+    // Read full refnames: the remote HEAD is symbolic, and %(refname:short) reports it as the bare remote name.
+    const refs = async (pattern: string) => (await run(['for-each-ref', '--format=%(refname)', pattern], item.path!))
+      .split('\n').map(name => name.trim()).filter(Boolean);
+    const local = (await refs('refs/heads')).map(name => name.slice('refs/heads/'.length)).sort();
+    const prefix = repository.remote ? `refs/remotes/${repository.remote}/` : '';
+    const remote = repository.remote
+      ? (await refs(`refs/remotes/${repository.remote}`)).filter(name => name !== `${prefix}HEAD`)
+        .map(name => name.slice(prefix.length)).sort()
+      : [];
+    return {local, remote, ...(repository.branch ? {current: repository.branch} : {}),
+      ...(repository.remote ? {remoteName: repository.remote} : {})};
+  }
+  /**
+   * Local history actions. Each re-reads the repository under the shared lock and
+   * refuses an unsafe state before touching anything; none of them rewrites history.
+   */
+  private async mutate(item: ManagedResource, key: string, action: 'commit' | 'push' | 'switch', input: string | undefined,
+    revision: string, signal: AbortSignal, interactive: () => boolean): Promise<void> {
+    const previous = this.records.get(item.id);
+    const record: RecordState = {key, attemptedAt: Date.now(),
+      ...(previous?.key === key ? {checkedAt: previous.checkedAt, target: previous.target, updatedAt: previous.updatedAt} : {})};
+    this.records.set(item.id, record);
+    const current = () => {
+      this.open(); if (signal.aborted) resourceFailure('project-closing');
+      this.clones.store.assertRevision(revision);
+      if (this.key(this.resource(item.id)) !== key) resourceFailure('git-state-changed');
+    };
+    let release: (() => void) | undefined;
+    try {
+      release = await this.lockRepository(item, signal); current();
+      const before = await this.local(item, true, signal); current();
+      record.target = before.target;
+      if (action === 'commit') await this.commit(item, before, input, signal);
+      else if (action === 'push') await this.push(item, before, interactive, signal, current);
+      else await this.switchBranch(item, before, input, signal);
+      current(); record.updatedAt = new Date().toISOString();
+    } catch (error) {record.error = failureCode(error);}
+    finally {release?.();}
+  }
+  /**
+   * Commit every working-tree change. Hooks and signing stay off: the Host has no
+   * interactive terminal, so a hook or a signing passphrase would hang the operation.
+   */
+  private async commit(item: ManagedResource, local: Repository, message: string | undefined, signal: AbortSignal): Promise<void> {
+    if (local.inProgress) resourceFailure('git-in-progress');
+    const text = (message ?? '').trim();
+    if (!text || text.length > 4096) resourceFailure('git-commit-message-required');
+    if (!local.dirty) resourceFailure('git-nothing-to-commit');
+    const timeoutMs = this.options.timeoutMs ?? 60_000;
+    const read = (args: readonly string[]) => this.run(args, item.path!, {signal, sync: true, timeoutMs}).catch(() => '');
+    if (!(await read(['config', '--get', 'user.email'])).trim() || !(await read(['config', '--get', 'user.name'])).trim()) {
+      resourceFailure('git-identity-missing');
+    }
+    await this.run(['-c', 'core.hooksPath=/dev/null', 'add', '--all'], item.path!, {signal, sync: true, timeoutMs});
+    await this.run(['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '--message', text],
+      item.path!, {signal, sync: true, timeoutMs});
+  }
+  /** Push the current branch without ever forcing; a rejected push is reported, never rewritten. */
+  private async push(item: ManagedResource, local: Repository, interactive: () => boolean, signal: AbortSignal,
+    current: () => void): Promise<void> {
+    if (local.inProgress) resourceFailure('git-in-progress');
+    if (!local.branch) resourceFailure('git-detached');
+    if (!local.connected) resourceFailure('git-no-remote');
+    if (!local.target || !local.remoteRef || !local.upstream) resourceFailure('git-no-upstream');
+    if (local.ahead && local.behind) resourceFailure('git-history-diverged');
+    // A missing tracking ref means the branch is not on the remote yet; that first push is allowed.
+    if (local.upstreamHead && !local.ahead) resourceFailure('git-nothing-to-push');
+    const auth = this.clones.auth;
+    const run: GitRun = auth ? (args, cwd, options = {}) => auth.run(this.run, args, cwd, options,
+      {url: item.url!, name: item.name, action: 'push'}, interactive, current) : this.run;
+    try {
+      // No force flag is ever passed, so a non-fast-forward update is rejected by the remote.
+      await run(['-c', 'core.hooksPath=/dev/null', 'push', '--porcelain', '--no-recurse-submodules', '--',
+        item.url!, `${local.branch}:${local.remoteRef}`], item.path!, {signal, sync: true, timeoutMs: this.options.timeoutMs ?? 60_000});
+    } catch (error) {
+      // Credential, host and cancellation failures keep their own codes; anything else is a rejection.
+      const code = failureCode(error);
+      if (['git-auth-required', 'git-auth-invalid', 'git-auth-expired', 'git-auth-cancelled', 'git-auth-unavailable',
+        'git-auth-remote-changed', 'git-host-unverified', 'git-sync-timeout', 'clone-cancelled', 'project-closing'].includes(code)) throw error;
+      resourceFailure('git-push-rejected');
+    }
+    // Git only advances the remote-tracking ref for a named remote, and this pushes by URL,
+    // so record the pushed commit here; otherwise the resource keeps reporting itself ahead.
+    await this.run(['update-ref', local.trackingRef!, local.head!], item.path!, {signal, sync: true,
+      timeoutMs: this.options.timeoutMs ?? 60_000});
+  }
+  /** Switch to an existing local branch. Local changes are refused rather than stashed. */
+  private async switchBranch(item: ManagedResource, local: Repository, branch: string | undefined, signal: AbortSignal): Promise<void> {
+    if (local.inProgress) resourceFailure('git-in-progress');
+    if (local.dirty) resourceFailure('git-local-changes');
+    const target = (branch ?? '').trim();
+    if (!target || target.startsWith('-') || target.length > 255) resourceFailure('resource-branch-invalid');
+    await this.run(['check-ref-format', '--branch', target], item.path!, {signal, sync: true})
+      .catch(() => resourceFailure('resource-branch-invalid'));
+    if (!(await this.branchNames(item, signal)).local.includes(target)) resourceFailure('git-branch-missing');
+    await this.run(['-c', 'core.hooksPath=/dev/null', 'switch', '--no-guess', target], item.path!,
+      {signal, sync: true, timeoutMs: this.options.timeoutMs ?? 60_000});
   }
   private async lockRepository(item: ManagedResource, signal: AbortSignal): Promise<() => void> {
     // Linked worktrees share refs and fetch locks. Only these related resources wait on each other;

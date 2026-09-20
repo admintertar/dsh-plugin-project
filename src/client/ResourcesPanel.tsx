@@ -8,7 +8,7 @@ import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectScrollableModal, ProjectSelect, ProjectSettingRow, ProjectSettingsCard} from './ProjectControls.tsx';
 import type {ResourceController} from './resource-controller.ts';
 import {ResourceCard} from './ResourceCard.tsx';
-import {canCheckResource, resourceErrorText as errorText} from './resource-ui.ts';
+import {resourceErrorText as errorText} from './resource-ui.ts';
 import {managedResources} from '../resource-scope.ts';
 const operationLabels = {cloning: 'resourceCloning', cancelling: 'resourceCancelling', cancelled: 'resourceCancelled', failed: 'resourceCloneFailed',
   pending: 'resourcePending', completed: 'resourceCompleted', interrupted: 'resourceInterrupted'} as const;
@@ -116,9 +116,14 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
     <div className="project-mcp-grid">{resources?.map(item => {
       const locked = state.pending.includes(item.id) || Boolean(item.git?.sync?.phase) || state.data!.operations.some(op => op.resourceId === item.id && (op.status === 'cloning' || op.status === 'cancelling'));
       return <ResourceCard key={item.id} item={item} root={root} t={t} syncError={state.syncErrors[item.id]}
-        syncActions={canCheckResource(item) ? {disabled: locked || !state.data?.canClone,
+        syncActions={item.type === 'git' && item.status === 'ready' ? {disabled: locked || !state.data?.canClone,
           check: () => void controller.sync(item.id, 'check', state.data!.revision),
-          update: () => void controller.sync(item.id, 'update', state.data!.revision)} : undefined}>
+          update: () => void controller.sync(item.id, 'update', state.data!.revision),
+          push: () => void controller.sync(item.id, 'push', state.data!.revision),
+          commit: message => void controller.sync(item.id, 'commit', state.data!.revision, message),
+          switchBranch: branch => void controller.sync(item.id, 'switch', state.data!.revision, undefined, branch),
+          // Committing and switching stay usable without a remote, so the card gates each action itself.
+          loadBranches: () => controller.branches(item.id)} : undefined}>
           {item.git?.diagnostic && <span className="project-mcp-error-anchor"><IconAction label={errorText(item.git.diagnostic, t)} icon={<IconWarningOutline16 />}
             action={event => {opener.current = event.currentTarget; setDetails({name: item.name, error: item.git!.diagnostic!});}} /></span>}
           {item.type === 'git' && item.status === 'ready' && (!item.url || ['unlinked', 'no-upstream'].includes(item.git?.sync?.status ?? '')) &&

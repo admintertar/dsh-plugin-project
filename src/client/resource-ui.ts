@@ -19,16 +19,23 @@ const errorKeys = {
   'git-no-upstream': 'resourceSyncNoUpstreamBody', 'git-detached': 'resourceSyncDetachedBody',
   'git-in-progress': 'resourceSyncInProgressBody', 'git-state-changed': 'resourceSyncChanged',
   'git-remote-branch-missing': 'resourceSyncMissingBranch',
+  'git-nothing-to-commit': 'resourceCommitClean', 'git-commit-message-required': 'resourceCommitMessageRequired',
+  'git-identity-missing': 'resourceCommitIdentity', 'git-push-rejected': 'resourcePushRejected',
+  'git-nothing-to-push': 'resourcePushClean', 'git-branch-missing': 'resourceBranchMissing',
   'git-no-remote': 'resourceSyncUnlinkedBody', 'resource-project-root': 'resourceProjectRootBody',
 } as const;
 export function resourceErrorText(code: string, t: CapabilityTranslate): string {return t(errorKeys[code as keyof typeof errorKeys] ?? 'capabilityError');}
 const syncLabels = {unborn: 'resourceSyncUnborn', unchecked: 'resourceSyncUnchecked', current: 'resourceSyncCurrent', behind: 'resourceSyncBehind', ahead: 'resourceSyncAhead',
   diverged: 'resourceSyncDiverged', detached: 'resourceSyncDetached', 'no-upstream': 'resourceSyncNoUpstream', error: 'resourceSyncError'} as const;
+const phaseLabels = {checking: 'resourceSyncChecking', updating: 'resourceSyncUpdating', committing: 'resourceSyncCommitting',
+  pushing: 'resourceSyncPushing', switching: 'resourceSyncSwitching'} as const;
 export function resourceSyncLabel(sync: ResourceGitSync | undefined, t: CapabilityTranslate): string {
-  if (sync?.phase) return t(sync.phase === 'checking' ? 'resourceSyncChecking' : 'resourceSyncUpdating');
+  if (sync?.phase) return t(phaseLabels[sync.phase]);
   if (sync?.status === 'unlinked' || sync?.error === 'git-no-remote') return t('resourceSyncUnlinked');
   const blocker = {'git-auth-required': 'gitAuthRequired', 'git-local-changes': 'resourceSyncDirty', 'git-history-diverged': 'resourceSyncDiverged', 'git-detached': 'resourceSyncDetached',
-    'git-no-upstream': 'resourceSyncNoUpstream', 'git-in-progress': 'resourceSyncInProgress'} as const;
+    'git-no-upstream': 'resourceSyncNoUpstream', 'git-in-progress': 'resourceSyncInProgress',
+    // Nothing to commit or push is a no-op, not a failure the user has to act on.
+    'git-nothing-to-commit': 'resourceSyncClean', 'git-nothing-to-push': 'resourceSyncCurrent'} as const;
   if (sync?.error && sync.error in blocker) return t(blocker[sync.error as keyof typeof blocker]);
   if (sync?.error) return t('resourceSyncError');
   if (sync?.inProgress) return t('resourceSyncInProgress');
@@ -47,4 +54,15 @@ export function canCheckResource(item: ManagedResource): boolean {
 }
 export function canUpdateResource(sync: ResourceGitSync | undefined): boolean {
   return Boolean(sync?.status === 'behind' && !sync.phase && !sync.dirty && !sync.inProgress && !sync.error);
+}
+/** Only local commits can be pushed, and never while the branch history is unresolved. */
+export function canPushResource(sync: ResourceGitSync | undefined): boolean {
+  return Boolean(sync?.status === 'ahead' && !sync.phase && !sync.inProgress && !sync.error);
+}
+export function canCommitResource(sync: ResourceGitSync | undefined): boolean {
+  return Boolean(sync?.dirty && !sync.phase && !sync.inProgress && !sync.error);
+}
+/** Switching is refused with local changes; the Host never stashes them automatically. */
+export function canSwitchResource(sync: ResourceGitSync | undefined): boolean {
+  return Boolean(!sync?.dirty && !sync?.phase && !sync?.inProgress);
 }
