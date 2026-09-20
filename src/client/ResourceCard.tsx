@@ -1,5 +1,5 @@
 import {useId, useRef, useState, type ReactNode} from 'react';
-import {Button, IconBranchOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, IconRightUpOutline16, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
+import {Button, IconBranchOutline16, IconCheckOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, IconRightUpOutline16, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ManagedResource, ResourceBranches} from '../resource-contract.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
@@ -52,14 +52,23 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
     opener.current = target; setViewing(true);
     void syncActions?.loadBranches().then(setBranches);
   };
-  const openCommit = () => {setCommitMessage(''); setCommitError(undefined); setCommitting(true);};
+  const openCommit = (target?: HTMLButtonElement) => {
+    if (target) opener.current = target;
+    setCommitMessage(''); setCommitError(undefined); setCommitting(true);
+  };
+  const closeCommit = () => {
+    setCommitting(false);
+    const target = opener.current;
+    // A successful commit removes the card's commit action; only restore focus when it survives.
+    if (target?.isConnected) target.focus();
+  };
   // Commit needs a message, so it asks for one instead of leaving a button disabled with no reason.
   const submitCommit = async () => {
     const text = commitMessage.trim();
     if (!text) {setCommitError(t('resourceCommitMessageRequired')); return;}
     if (!syncActions) return;
     setCommitBusy(true); setCommitError(undefined);
-    try {if (await syncActions.commit(text)) {setCommitting(false); setCommitMessage('');}}
+    try {if (await syncActions.commit(text)) {closeCommit(); setCommitMessage('');}}
     finally {setCommitBusy(false);}
   };
   const gitReady = item.type === 'git' && item.status === 'ready';
@@ -95,6 +104,8 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
             icon={<IconRefreshOutline16 />} aria-label={`${t('resourceSyncCheck')}: ${item.name}`} disabled={syncActions.disabled} onClick={syncActions.check} /></span></Tooltip>}
           <Tooltip label={canUpdateResource(sync) ? t('resourceSyncUpdate') : syncDescription} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
             icon={<IconDownloadOutline16 />} aria-label={`${t('resourceSyncUpdate')}: ${item.name}`} disabled={syncActions.disabled || !canUpdateResource(sync)} onClick={syncActions.update} /></span></Tooltip>
+          {canCommitResource(sync) && <Tooltip label={t('resourceSyncCommit')} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
+            icon={<IconCheckOutline16 />} aria-label={`${t('resourceSyncCommit')}: ${item.name}`} disabled={syncActions.disabled} onClick={event => openCommit(event.currentTarget)} /></span></Tooltip>}
           {canPushResource(sync) && <Tooltip label={t('resourceSyncPush')} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
             icon={<IconRightUpOutline16 />} aria-label={`${t('resourceSyncPush')}: ${item.name}`} disabled={syncActions.disabled} onClick={syncActions.push} /></span></Tooltip>}
         </>}
@@ -104,7 +115,7 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
     <ProjectScrollableModal open={viewing} title={t('resourceDetails')} closeLabel={t('close')} onClose={close}
       footer={<>{syncActions && <>{canCheckResource(item) && <Button variant="outline" disabled={syncActions.disabled} onClick={syncActions.check}>{t('resourceSyncCheck')}</Button>}
         <Button variant="outline" disabled={syncActions.disabled || !canUpdateResource(sync)} onClick={syncActions.update}>{t('resourceSyncUpdate')}</Button>
-        <Button variant="outline" disabled={syncActions.disabled || !canCommitResource(sync)} onClick={openCommit}>{t('resourceSyncCommit')}</Button>
+        <Button variant="outline" disabled={syncActions.disabled || !canCommitResource(sync)} onClick={() => openCommit()}>{t('resourceSyncCommit')}</Button>
         {canPushResource(sync) && <Button variant="outline" disabled={syncActions.disabled} onClick={syncActions.push}>{t('resourceSyncPush')}</Button>}</>}
         <Button variant="primary" autoFocus onClick={close}>{t('close')}</Button></>}>
       <div className="project-capability-form project-resource-details">
@@ -134,8 +145,8 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
       </div>
     </ProjectScrollableModal>
     <Modal open={committing} className="project-commit-dialog" contentClassName="project-commit-dialog-content"
-      title={t('resourceSyncCommit')} closeLabel={t('close')} onClose={() => {if (!commitBusy) setCommitting(false);}}
-      footer={<><Button variant="outline" disabled={commitBusy} onClick={() => setCommitting(false)}>{t('cancel')}</Button>
+      title={t('resourceSyncCommit')} closeLabel={t('close')} onClose={() => {if (!commitBusy) closeCommit();}}
+      footer={<><Button variant="outline" disabled={commitBusy} onClick={closeCommit}>{t('cancel')}</Button>
         <Button variant="primary" disabled={commitBusy} onClick={() => void submitCommit()}>{t('resourceSyncCommit')}</Button></>}>
       <div className="project-commit-field">
         <div className="project-commit-copy">
