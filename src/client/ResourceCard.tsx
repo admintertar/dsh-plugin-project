@@ -1,5 +1,5 @@
-import {useEffect, useRef, useState, type ReactNode} from 'react';
-import {Button, IconBranchOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, IconRightUpOutline16, Input, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
+import {useRef, useState, type ReactNode} from 'react';
+import {Button, IconBranchOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, IconRightUpOutline16, Input, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ManagedResource, ResourceBranches} from '../resource-contract.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
@@ -36,17 +36,30 @@ function ResourceMetadata({icon, text, tooltip}: {icon: ReactNode; text: string;
 
 /** Shared Agent Preset card adaptation; management actions belong to the resource page. */
 export function ResourceCard({item, root, t, children, syncActions, syncError}: {item: ManagedResource; root: string; t: CapabilityTranslate; children?: ReactNode; syncError?: string;
-  syncActions?: {disabled: boolean; check(): void; update(): void; push(): void; commit(message: string): void; switchBranch(branch: string): void;
+  syncActions?: {disabled: boolean; check(): void; update(): void; push(): void; commit(message: string): Promise<boolean>; switchBranch(branch: string): void;
     loadBranches(): Promise<ResourceBranches | undefined>}}) {
   const [viewing, setViewing] = useState(false);
   const [branches, setBranches] = useState<ResourceBranches>();
-  const [message, setMessage] = useState('');
+  const [committing, setCommitting] = useState(false);
+  const [commitMessage, setCommitMessage] = useState('');
+  const [commitError, setCommitError] = useState<string>();
+  const [commitBusy, setCommitBusy] = useState(false);
   const opener = useRef<HTMLButtonElement | null>(null);
   const close = () => {setViewing(false); opener.current?.focus();};
   // Branch names are only needed while the details dialog is open, so read them on open.
   const showDetails = (target: HTMLButtonElement) => {
     opener.current = target; setViewing(true);
     void syncActions?.loadBranches().then(setBranches);
+  };
+  const openCommit = () => {setCommitMessage(''); setCommitError(undefined); setCommitting(true);};
+  // Commit needs a message, so it asks for one instead of leaving a button disabled with no reason.
+  const submitCommit = async () => {
+    const text = commitMessage.trim();
+    if (!text) {setCommitError(t('resourceCommitMessageRequired')); return;}
+    if (!syncActions) return;
+    setCommitBusy(true); setCommitError(undefined);
+    try {if (await syncActions.commit(text)) {setCommitting(false); setCommitMessage('');}}
+    finally {setCommitBusy(false);}
   };
   const gitReady = item.type === 'git' && item.status === 'ready';
   const sync = syncError ? {...item.git?.sync, status: 'error' as const, error: syncError}
@@ -59,8 +72,6 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
     : sync?.status === 'detached' ? t('resourceSyncDetachedBody') : t('resourceSyncBody');
   const tone = gitReady ? sync?.status === 'unlinked' || sync?.status === 'unborn' ? 'neutral' : sync?.status === 'current' && !sync.dirty && !sync.error && !sync.inProgress ? 'success' : 'warning'
     : item.status === 'ready' ? 'success' : 'warning';
-  // A successful commit empties the working tree; drop the draft message with it.
-  useEffect(() => {if (!sync?.dirty) setMessage('');}, [sync?.dirty]);
   return <>
     <article className="project-mcp-card project-resource-card" aria-label={item.name}>
       <div className="project-mcp-card-body">
@@ -92,8 +103,7 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
     <ProjectScrollableModal open={viewing} title={t('resourceDetails')} closeLabel={t('close')} onClose={close}
       footer={<>{syncActions && <>{canCheckResource(item) && <Button variant="outline" disabled={syncActions.disabled} onClick={syncActions.check}>{t('resourceSyncCheck')}</Button>}
         <Button variant="outline" disabled={syncActions.disabled || !canUpdateResource(sync)} onClick={syncActions.update}>{t('resourceSyncUpdate')}</Button>
-        <Button variant="outline" disabled={syncActions.disabled || !canCommitResource(sync) || message.trim().length === 0}
-          onClick={() => syncActions.commit(message)}>{t('resourceSyncCommit')}</Button>
+        <Button variant="outline" disabled={syncActions.disabled || !canCommitResource(sync)} onClick={openCommit}>{t('resourceSyncCommit')}</Button>
         {canPushResource(sync) && <Button variant="outline" disabled={syncActions.disabled} onClick={syncActions.push}>{t('resourceSyncPush')}</Button>}</>}
         <Button variant="primary" autoFocus onClick={close}>{t('close')}</Button></>}>
       <div className="project-capability-form project-resource-details">
@@ -120,12 +130,19 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
           {sync?.ahead !== undefined && <ProjectSettingRow title={t('resourceSyncComparison')}><span>{t('resourceSyncCounts', {ahead: sync.ahead, behind: sync.behind ?? 0})}</span></ProjectSettingRow>}
           <ProjectSettingRow title={t('resourceSyncWorkspace')}><span>{sync?.dirty === undefined ? t('resourceSyncUnchecked') : t(sync.dirty ? 'resourceSyncDirty' : 'resourceSyncClean')}</span></ProjectSettingRow>
         </>}
-        {gitReady && syncActions && <ProjectSettingRow title={t('resourceCommitMessage')}
-          description={sync?.dirty ? t('resourceCommitBody') : t('resourceCommitClean')} layout="stacked">
-          <Input aria-label={`${t('resourceCommitMessage')}: ${item.name}`} value={message} maxLength={4096}
-            disabled={syncActions.disabled || !canCommitResource(sync)} onChange={event => setMessage(event.target.value)} />
-        </ProjectSettingRow>}
       </div>
     </ProjectScrollableModal>
+    <Modal open={committing} title={t('resourceSyncCommit')} closeLabel={t('close')} onClose={() => {if (!commitBusy) setCommitting(false);}}
+      footer={<><Button variant="outline" disabled={commitBusy} onClick={() => setCommitting(false)}>{t('cancel')}</Button>
+        <Button variant="primary" disabled={commitBusy} onClick={() => void submitCommit()}>{t('resourceSyncCommit')}</Button></>}>
+      <div className="project-capability-form">
+        <ProjectSettingRow title={t('resourceCommitMessage')} description={t('resourceCommitBody')} layout="stacked">
+          <Input aria-label={`${t('resourceCommitMessage')}: ${item.name}`} value={commitMessage} maxLength={4096} autoFocus
+            disabled={commitBusy} onChange={event => {setCommitMessage(event.target.value); setCommitError(undefined);}} />
+        </ProjectSettingRow>
+      </div>
+      {commitError && <p className="project-error" role="alert">{commitError}</p>}
+      {syncError && <p className="project-error" role="alert">{resourceErrorText(syncError, t)}</p>}
+    </Modal>
   </>;
 }

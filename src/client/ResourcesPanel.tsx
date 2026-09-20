@@ -120,7 +120,7 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
           check: () => void controller.sync(item.id, 'check', state.data!.revision),
           update: () => void controller.sync(item.id, 'update', state.data!.revision),
           push: () => void controller.sync(item.id, 'push', state.data!.revision),
-          commit: message => void controller.sync(item.id, 'commit', state.data!.revision, message),
+          commit: message => controller.sync(item.id, 'commit', state.data!.revision, message),
           switchBranch: branch => void controller.sync(item.id, 'switch', state.data!.revision, undefined, branch),
           // Committing and switching stay usable without a remote, so the card gates each action itself.
           loadBranches: () => controller.branches(item.id)} : undefined}>
