@@ -2,7 +2,7 @@ import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
 import {execFile, execFileSync} from 'node:child_process';
 import {promisify} from 'node:util';
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {parse, stringify} from 'yaml';
 import {ResourceCloneManager} from '../src/resource-clones.ts';
@@ -427,6 +427,24 @@ test('push refuses diverged history and a branch with nothing to push', async ()
     await f.sync.start(f.item.id, 'push', f.store.revision());
     assert.equal((await f.state()).error, 'git-history-diverged');
     assert.equal(f.calls.filter(args => args.includes('push')).length, 0, 'a refused push never reaches Git');
+  } finally {await f.cleanup();}
+});
+
+test('changes reports the modified, untracked, deleted and renamed files a commit would include', async () => {
+  const f = await fixture();
+  try {
+    giveIdentity(f);
+    writeFileSync(join(f.path, 'removed.txt'), 'gone\n');
+    writeFileSync(join(f.path, 'renamed.txt'), 'x\n');
+    f.git('add', 'removed.txt', 'renamed.txt');
+    f.git('commit', '--quiet', '-m', 'add fixtures');
+    writeFileSync(join(f.path, 'README.md'), '# Edited\n');
+    writeFileSync(join(f.path, 'untracked.txt'), 'new\n');
+    rmSync(join(f.path, 'removed.txt'));
+    f.git('mv', 'renamed.txt', 'renamed-new.txt');
+    const {files} = await f.sync.changes(f.item.id);
+    assert.deepEqual(Object.fromEntries(files.map(file => [file.path, file.status])),
+      {'README.md': 'modified', 'untracked.txt': 'untracked', 'removed.txt': 'deleted', 'renamed-new.txt': 'renamed'});
   } finally {await f.cleanup();}
 });
 

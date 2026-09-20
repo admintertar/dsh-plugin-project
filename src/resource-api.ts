@@ -77,6 +77,10 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
     const resource = id.parse(new URL(req.url ?? '/', 'http://localhost').searchParams.get('id') ?? '');
     return sync.branches(resource);
   });
+  register('/changes', ['GET'], async req => {
+    const resource = id.parse(new URL(req.url ?? '/', 'http://localhost').searchParams.get('id') ?? '');
+    return sync.changes(resource);
+  });
   register('/auth', ['GET', 'POST'], async req => {
     store.revision();
     if (req.method === 'POST') {

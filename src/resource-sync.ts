@@ -4,18 +4,42 @@ import {createHash} from 'node:crypto';
 import {ProjectHttpError} from './http.ts';
 import {resourceFailure} from './resource-files.ts';
 import {ResourceGitError, type GitRun} from './resource-git.ts';
-import {validResourceUrl, type ManagedResource, type ResourceBranches, type ResourceGitSync, type ResourcesSnapshot, type ResourceSyncAction} from './resource-contract.ts';
+import {validResourceUrl, type ManagedResource, type ResourceBranches, type ResourceChangeStatus, type ResourceChanges, type ResourceGitSync, type ResourcesSnapshot, type ResourceSyncAction} from './resource-contract.ts';
 import type {ResourceCloneManager} from './resource-clones.ts';
 import {isProjectRootResource, managedResources} from './resource-scope.ts';
 
 interface Repository {
   branch?: string; head?: string; remote?: string; remoteRef?: string; trackingRef?: string; upstreamHead?: string;
   target: string; connected: boolean; dirty: boolean; inProgress: boolean; ahead?: number; behind?: number; upstream?: string;
+  files: {path: string; status: ResourceChangeStatus}[];
 }
 interface RecordState {key: string; target?: string; checkedAt?: string; updatedAt?: string; error?: string; attemptedAt: number}
 interface ActiveSync {phase: NonNullable<ResourceGitSync['phase']>; controller: AbortController; done: Promise<void>; interactive: boolean}
 const failureCode = (error: unknown): string => error instanceof ProjectHttpError || error instanceof ResourceGitError ? error.code : 'git-sync-failed';
 const operationMarkers = ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply', 'sequencer', 'BISECT_START'];
+
+/** The two status letters of a porcelain v2 record, reduced to the state a commit would record. */
+function changeStatus(xy: string): ResourceChangeStatus {
+  if (xy.includes('D')) return 'deleted';
+  if (xy.includes('A')) return 'added';
+  if (xy.includes('R') || xy.includes('C')) return 'renamed';
+  return 'modified';
+}
+/** Porcelain v2 records: `1` ordinary, `2` rename/copy, `u` unmerged, `?` untracked. */
+function parseChanges(output: string): {path: string; status: ResourceChangeStatus}[] {
+  const files: {path: string; status: ResourceChangeStatus}[] = [];
+  for (const line of output.split('\n')) {
+    if (!line || line.startsWith('# ')) continue;
+    if (line.startsWith('? ')) {files.push({path: line.slice(2), status: 'untracked'}); continue;}
+    const parts = line.split(' ');
+    // A path follows a fixed field count per record type, and porcelain leaves spaces unquoted.
+    if (parts[0] === 'u') {files.push({path: parts.slice(10).join(' '), status: 'conflicted'}); continue;}
+    if (parts[0] === '1' || parts[0] === '2') files.push({
+      path: parts.slice(parts[0] === '1' ? 8 : 9).join(' ').split('\t')[0]!,
+      status: parts[0] === '2' ? 'renamed' : changeStatus(parts[1] ?? '')});
+  }
+  return files;
+}
 
 /** Local inspection only. Track the actual current branch; manifest.branch remains a clone option. */
 async function inspect(path: string, url: string | undefined, run: GitRun): Promise<Repository> {
@@ -26,7 +50,7 @@ async function inspect(path: string, url: string | undefined, run: GitRun): Prom
   const branch = value('head'); const head = value('oid');
   const gitDir = await run(['rev-parse', '--absolute-git-dir'], path);
   const result: Repository = {branch: branch && branch !== '(detached)' ? branch : undefined,
-    head: head && head !== '(initial)' ? head : undefined, target: '', connected: false,
+    head: head && head !== '(initial)' ? head : undefined, target: '', connected: false, files: parseChanges(output),
     dirty: lines.some(line => line && !line.startsWith('# ')), inProgress: operationMarkers.some(marker => existsSync(join(gitDir, marker)))};
   // A new local repository is usable before it has an origin or a first commit.
   const remotes = (await run(['remote'], path)).split('\n');
@@ -157,6 +181,11 @@ export class ResourceSyncManager {
   async branches(id: string): Promise<ResourceBranches> {
     this.open();
     return this.branchNames(this.resource(id));
+  }
+  /** The changes a commit would include, read fresh for the confirmation dialog. */
+  async changes(id: string): Promise<ResourceChanges> {
+    this.open();
+    return {files: (await this.local(this.resource(id), true)).files};
   }
   private async branchNames(item: ManagedResource, signal?: AbortSignal): Promise<ResourceBranches> {
     const run: GitRun = (args, cwd) => this.run(args, cwd, {signal: signal ?? this.lifetime.signal, sync: true});

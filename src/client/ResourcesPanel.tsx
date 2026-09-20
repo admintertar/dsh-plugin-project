@@ -123,7 +123,8 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
           commit: message => controller.sync(item.id, 'commit', state.data!.revision, message),
           switchBranch: branch => void controller.sync(item.id, 'switch', state.data!.revision, undefined, branch),
           // Committing and switching stay usable without a remote, so the card gates each action itself.
-          loadBranches: () => controller.branches(item.id)} : undefined}>
+          loadBranches: () => controller.branches(item.id),
+          loadChanges: () => controller.changes(item.id)} : undefined}>
           {item.git?.diagnostic && <span className="project-mcp-error-anchor"><IconAction label={errorText(item.git.diagnostic, t)} icon={<IconWarningOutline16 />}
             action={event => {opener.current = event.currentTarget; setDetails({name: item.name, error: item.git!.diagnostic!});}} /></span>}
           {item.type === 'git' && item.status === 'ready' && (!item.url || ['unlinked', 'no-upstream'].includes(item.git?.sync?.status ?? '')) &&

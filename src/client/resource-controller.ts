@@ -1,4 +1,4 @@
-import {resourceErrorCodes, type ResourceAction, type ResourceBranches, type ResourceCloneRequest, type ResourceInspection, type ResourcesSnapshot, type ResourceSyncAction} from '../resource-contract.ts';
+import {resourceErrorCodes, type ResourceAction, type ResourceBranches, type ResourceChanges, type ResourceCloneRequest, type ResourceInspection, type ResourcesSnapshot, type ResourceSyncAction} from '../resource-contract.ts';
 import {ResourceAuthController} from './resource-auth-controller.ts';
 
 interface ResourceState {data?: ResourcesSnapshot; error?: string; syncErrors: Readonly<Record<string, string | undefined>>; loading: boolean; pending: readonly string[]}
@@ -59,6 +59,14 @@ export class ResourceController {
     if (this.disposed) return undefined;
     const controller = new AbortController(); this.requests.add(controller);
     try {return await this.read<ResourceBranches>(`/branches?id=${encodeURIComponent(id)}`, {signal: controller.signal});}
+    catch {return undefined;}
+    finally {this.requests.delete(controller);}
+  }
+  /** The changes a commit would include. A failed read only hides the list. */
+  async changes(id: string): Promise<ResourceChanges | undefined> {
+    if (this.disposed) return undefined;
+    const controller = new AbortController(); this.requests.add(controller);
+    try {return await this.read<ResourceChanges>(`/changes?id=${encodeURIComponent(id)}`, {signal: controller.signal});}
     catch {return undefined;}
     finally {this.requests.delete(controller);}
   }

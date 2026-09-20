@@ -75,6 +75,7 @@ test('commit carries the message, switch carries the branch and branch reads sta
   const controller = new ResourceController(() => {}, (async (url: string, init?: RequestInit) => {
     urls.push(String(url));
     if (String(url).includes('/branches')) return response({current: 'main', local: ['main', 'work'], remote: ['feature', 'main'], remoteName: 'origin'});
+    if (String(url).includes('/changes')) return response({files: [{path: 'README.md', status: 'modified'}, {path: 'new.txt', status: 'untracked'}]});
     if (init?.method === 'POST') {bodies.push(JSON.parse(String(init.body))); return response({accepted: true});}
     return response(empty);
   }) as unknown as typeof fetch);
@@ -89,6 +90,9 @@ test('commit carries the message, switch carries the branch and branch reads sta
     const branches = await controller.branches('root');
     assert.equal(branches?.current, 'main'); assert.deepEqual(branches?.local, ['main', 'work']); assert.deepEqual(branches?.remote, ['feature', 'main']);
     assert.ok(urls.some(url => url.endsWith('/branches?id=root')), 'the branch read is a plain GET by resource id');
+    const changes = await controller.changes('root');
+    assert.deepEqual(changes?.files, [{path: 'README.md', status: 'modified'}, {path: 'new.txt', status: 'untracked'}]);
+    assert.ok(urls.some(url => url.endsWith('/changes?id=root')), 'the change list is a plain GET by resource id');
     assert.equal(controller.getSnapshot().pending.length, 0);
   } finally {controller.dispose();}
 });

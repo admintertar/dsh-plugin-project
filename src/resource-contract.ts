@@ -29,6 +29,9 @@ export type ResourceSyncAction = 'check' | 'update' | 'commit' | 'push' | 'switc
 export interface ResourceBranches {
   current?: string; local: string[]; remote: string[]; remoteName?: string;
 }
+/** The working-tree changes a commit would include; untracked directories stay collapsed. */
+export type ResourceChangeStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted';
+export interface ResourceChanges {files: {path: string; status: ResourceChangeStatus}[]}
 export interface ManagedResource extends ResourceView {git?: {branch?: string; diagnostic?: string; sync?: ResourceGitSync}}
 export type CloneStatus = 'cloning' | 'cancelling' | 'cancelled' | 'failed' | 'pending' | 'completed' | 'interrupted';
 export interface ResourceCloneOperation {

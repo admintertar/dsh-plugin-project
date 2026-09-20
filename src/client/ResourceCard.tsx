@@ -1,6 +1,6 @@
 import {useId, useRef, useState, type ReactNode} from 'react';
 import {Button, IconBranchOutline16, IconCheckOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, IconRightUpOutline16, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
-import type {ManagedResource, ResourceBranches} from '../resource-contract.ts';
+import type {ManagedResource, ResourceBranches, ResourceChangeStatus, ResourceChanges} from '../resource-contract.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
 import {canCheckResource, canCommitResource, canPushResource, canSwitchResource, canUpdateResource, resourceErrorText, resourceSyncLabel} from './resource-ui.ts';
@@ -24,6 +24,10 @@ function repositoryLabel(url: string): string {
   catch {path = url.replace(/^[^@]+@[^:]+:/, '');}
   return path.replace(/^\/+|\/+$/g, '').replace(/\.git$/, '');
 }
+/** Git's own porcelain letters; the localized name travels in the tooltip and accessible label. */
+const changeLetters: Record<ResourceChangeStatus, string> = {modified: 'M', added: 'A', deleted: 'D', renamed: 'R', untracked: '?', conflicted: 'U'};
+const changeLabels = {modified: 'resourceChangeModified', added: 'resourceChangeAdded', deleted: 'resourceChangeDeleted',
+  renamed: 'resourceChangeRenamed', untracked: 'resourceChangeUntracked', conflicted: 'resourceChangeConflicted'} as const;
 function ResourceMetadata({icon, text, tooltip}: {icon: ReactNode; text: string; tooltip: string}) {
   const split = text.lastIndexOf('/') + 1;
   return <Tooltip label={tooltip} side="top" maxWidth={480}><div className="project-resource-metadata">
@@ -37,10 +41,11 @@ function ResourceMetadata({icon, text, tooltip}: {icon: ReactNode; text: string;
 /** Shared Agent Preset card adaptation; management actions belong to the resource page. */
 export function ResourceCard({item, root, t, children, syncActions, syncError}: {item: ManagedResource; root: string; t: CapabilityTranslate; children?: ReactNode; syncError?: string;
   syncActions?: {disabled: boolean; check(): void; update(): void; push(): void; commit(message: string): Promise<boolean>; switchBranch(branch: string): void;
-    loadBranches(): Promise<ResourceBranches | undefined>}}) {
+    loadBranches(): Promise<ResourceBranches | undefined>; loadChanges(): Promise<ResourceChanges | undefined>}}) {
   const [viewing, setViewing] = useState(false);
   const [branches, setBranches] = useState<ResourceBranches>();
   const [committing, setCommitting] = useState(false);
+  const [changes, setChanges] = useState<ResourceChanges>();
   const [commitMessage, setCommitMessage] = useState('');
   const [commitError, setCommitError] = useState<string>();
   const [commitBusy, setCommitBusy] = useState(false);
@@ -54,7 +59,9 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
   };
   const openCommit = (target?: HTMLButtonElement) => {
     if (target) opener.current = target;
-    setCommitMessage(''); setCommitError(undefined); setCommitting(true);
+    setCommitMessage(''); setCommitError(undefined); setCommitting(true); setChanges(undefined);
+    // The commit takes the whole working tree, so show what it would include.
+    void syncActions?.loadChanges().then(setChanges);
   };
   const closeCommit = () => {
     setCommitting(false);
@@ -157,6 +164,18 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
           aria-label={`${t('resourceCommitMessage')}: ${item.name}`} value={commitMessage} disabled={commitBusy}
           onChange={event => {setCommitMessage(event.target.value); setCommitError(undefined);}} />
       </div>
+      {changes && <div className="project-commit-changes">
+        <div className="project-commit-changes-head">
+          <span className="project-setting-title">{t('resourceCommitChanges')}</span>
+          <span className="project-setting-description">{t('resourceCommitFiles', {count: changes.files.length})}</span>
+        </div>
+        {changes.files.length === 0 ? <p className="project-setting-description">{t('resourceCommitClean')}</p>
+          : <ul className="project-commit-list">{changes.files.map(file => <li className="project-commit-file" key={`${file.status}:${file.path}`}>
+              <Tooltip label={t(changeLabels[file.status])} side="top"><span className={`project-commit-status project-commit-status-${file.status}`}
+                aria-label={t(changeLabels[file.status])}>{changeLetters[file.status]}</span></Tooltip>
+              <code>{file.path}</code>
+            </li>)}</ul>}
+      </div>}
       {commitError && <p className="project-error" role="alert">{commitError}</p>}
       {syncError && <p className="project-error" role="alert">{resourceErrorText(syncError, t)}</p>}
     </Modal>

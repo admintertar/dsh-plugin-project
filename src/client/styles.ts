@@ -154,6 +154,15 @@ button.project-desktop-switch:focus-visible{outline:2px solid var(--dsw-alias-br
 .project-commit-dialog-content>div:last-child{margin-top:0}
 .project-commit-field{display:grid;gap:12px;min-width:0}
 .project-commit-copy{display:grid;gap:4px;min-width:0}
+/* The commit takes the whole working tree, so the dialog lists what it would include. */
+.project-commit-changes{display:grid;gap:8px;min-width:0}
+.project-commit-changes-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}
+.project-commit-list{box-sizing:border-box;max-height:180px;margin:0;padding:4px 0;list-style:none;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:.5px solid var(--dsw-alias-border-l4);border-radius:8px}
+.project-commit-file{display:flex;align-items:baseline;gap:8px;min-width:0;padding:4px 10px}
+.project-commit-file code{flex:1;min-width:0;font-size:12px;line-height:18px;overflow-wrap:anywhere}
+.project-commit-status{flex:none;width:14px;font-family:var(--ds-font-family-code);font-size:12px;line-height:18px;text-align:center;color:var(--dsw-alias-label-tertiary)}
+.project-commit-status-added{color:var(--dsw-alias-brand-primary)}
+.project-commit-status-conflicted{color:var(--dsw-alias-state-error-primary)}
 .project-capability-form{box-sizing:border-box;min-width:0;min-height:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:14px;line-height:22px;container:project-mcp-form / inline-size}
 .project-capability-form fieldset{min-width:0;border:0;padding:0;margin:0}
 /* Input wraps a native input in a flex span; both must shrink inside grid cells. */
