@@ -1,5 +1,5 @@
-import {useRef, useState, type ReactNode} from 'react';
-import {Button, IconBranchOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, IconRightUpOutline16, Input, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
+import {useId, useRef, useState, type ReactNode} from 'react';
+import {Button, IconBranchOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, IconRightUpOutline16, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ManagedResource, ResourceBranches} from '../resource-contract.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
@@ -44,6 +44,7 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
   const [commitMessage, setCommitMessage] = useState('');
   const [commitError, setCommitError] = useState<string>();
   const [commitBusy, setCommitBusy] = useState(false);
+  const commitFieldId = useId();
   const opener = useRef<HTMLButtonElement | null>(null);
   const close = () => {setViewing(false); opener.current?.focus();};
   // Branch names are only needed while the details dialog is open, so read them on open.
@@ -132,14 +133,18 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
         </>}
       </div>
     </ProjectScrollableModal>
-    <Modal open={committing} title={t('resourceSyncCommit')} closeLabel={t('close')} onClose={() => {if (!commitBusy) setCommitting(false);}}
+    <Modal open={committing} className="project-commit-dialog" contentClassName="project-commit-dialog-content"
+      title={t('resourceSyncCommit')} closeLabel={t('close')} onClose={() => {if (!commitBusy) setCommitting(false);}}
       footer={<><Button variant="outline" disabled={commitBusy} onClick={() => setCommitting(false)}>{t('cancel')}</Button>
         <Button variant="primary" disabled={commitBusy} onClick={() => void submitCommit()}>{t('resourceSyncCommit')}</Button></>}>
-      <div className="project-capability-form">
-        <ProjectSettingRow title={t('resourceCommitMessage')} description={t('resourceCommitBody')} layout="stacked">
-          <Input aria-label={`${t('resourceCommitMessage')}: ${item.name}`} value={commitMessage} maxLength={4096} autoFocus
-            disabled={commitBusy} onChange={event => {setCommitMessage(event.target.value); setCommitError(undefined);}} />
-        </ProjectSettingRow>
+      <div className="project-commit-field">
+        <div className="project-commit-copy">
+          <label className="project-setting-title" htmlFor={commitFieldId}>{t('resourceCommitMessage')}</label>
+          <p className="project-setting-description">{t('resourceCommitBody')}</p>
+        </div>
+        <textarea id={commitFieldId} className="project-textarea" rows={3} maxLength={4096} autoFocus
+          aria-label={`${t('resourceCommitMessage')}: ${item.name}`} value={commitMessage} disabled={commitBusy}
+          onChange={event => {setCommitMessage(event.target.value); setCommitError(undefined);}} />
       </div>
       {commitError && <p className="project-error" role="alert">{commitError}</p>}
       {syncError && <p className="project-error" role="alert">{resourceErrorText(syncError, t)}</p>}

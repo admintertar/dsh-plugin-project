@@ -56,7 +56,7 @@ html[data-project-panel-switching] [data-sidebar-right-panel]{transition:none!im
 .project-catalog-context{font-size:12px;overflow-wrap:anywhere}
 /* ui-agent-preset/AgentPresetSection.module.css: private roster/card chrome with a public Button/Modal reader. */
 .project-panel .project-tool-group{margin-bottom:32px}.project-panel .project-tool-group>h2{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary)}
-.project-tool-grid,.project-mcp-grid,.project-skill-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,268px),1fr));grid-auto-rows:1fr;gap:12px}
+.project-tool-grid,.project-mcp-grid,.project-skill-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,363px),1fr));grid-auto-rows:1fr;gap:12px}
 .project-tool-card,.project-mcp-card,.project-skill-card{min-width:0;display:flex;flex-direction:column;border:.5px solid var(--dsw-alias-border-l4);border-radius:20px;background:transparent;transition:border-color .16s,background .16s}
 .project-tool-card:hover,.project-mcp-card:hover,.project-skill-card:hover{background:var(--dsw-alias-interactive-bg-hover)}
 button.project-tool-main{box-sizing:border-box;flex:1;width:100%;height:auto;min-width:0;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:8px;padding:14px 16px 12px;border:0;border-radius:20px;background:none;font:inherit;text-align:left;white-space:normal;color:var(--dsw-alias-label-primary)}
@@ -145,6 +145,12 @@ button.project-desktop-switch:focus-visible{outline:2px solid var(--dsw-alias-br
 .project-settings-dialog-content>div:first-child,.project-settings-dialog-content>p{flex:none}
 .project-settings-dialog-content>div:last-child{min-height:0;margin-top:12px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-right:calc(24px - var(--dsh-scrollbar-width,8px))}
 .project-settings-dialog>div:last-child{flex:none;flex-wrap:wrap}
+/* A short single-field dialog supplies its own label, so the Modal's reserved 20px
+   gap plus the body's 20px top margin would read as one oversized blank. */
+.project-commit-dialog{gap:8px}
+.project-commit-dialog-content>div:last-child{margin-top:0}
+.project-commit-field{display:grid;gap:12px;min-width:0}
+.project-commit-copy{display:grid;gap:4px;min-width:0}
 .project-capability-form{box-sizing:border-box;min-width:0;min-height:0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:14px;line-height:22px;container:project-mcp-form / inline-size}
 .project-capability-form fieldset{min-width:0;border:0;padding:0;margin:0}
 /* Input wraps a native input in a flex span; both must shrink inside grid cells. */
