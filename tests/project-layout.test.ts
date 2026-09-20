@@ -93,6 +93,39 @@ test('appending ignore rules preserves existing permissions even under a stricte
   } finally {process.umask(previousUmask); f.cleanup();}
 });
 
+test('an equivalent anchored ignore rule is not appended again', () => {
+  const f = fixture();
+  try {
+    const path = join(f.root, '.gitignore');
+    // A separator inside the pattern already anchors it, so the leading slash is redundant.
+    writeFileSync(path, '.DS_Store\n/mcp/local.yaml\n/tasks/.write-lock\n');
+    appendGitignoreRules(f.root, ['mcp/local.yaml', 'tasks/.write-lock', 'tasks/.write-lock.recovery']);
+    assert.equal(readFileSync(path, 'utf8'), '.DS_Store\n/mcp/local.yaml\n/tasks/.write-lock\ntasks/.write-lock.recovery\n');
+  } finally {f.cleanup();}
+});
+
+test('an unanchored rule stays distinct from the same anchored rule', () => {
+  const f = fixture();
+  try {
+    const path = join(f.root, '.gitignore');
+    writeFileSync(path, '/local.yaml\n');
+    appendGitignoreRules(f.root, ['local.yaml']);
+    assert.equal(readFileSync(path, 'utf8'), '/local.yaml\nlocal.yaml\n');
+  } finally {f.cleanup();}
+});
+
+test('a project using the anchored rules is left unchanged when reopened', () => {
+  const f = fixture();
+  try {
+    const path = join(f.root, '.gitignore');
+    writeFileSync(path, '.DS_Store\n/mcp/local.yaml\n/tasks/.write-lock\n/tasks/.write-lock.recovery\n');
+    const before = readFileSync(path, 'utf8');
+    ensureProjectLayout(f.root);
+    appendGitignoreRules(f.root, ['tasks/.write-lock', 'tasks/.write-lock.recovery']);
+    assert.equal(readFileSync(path, 'utf8'), before);
+  } finally {f.cleanup();}
+});
+
 test('a new gitignore respects umask without changing private file defaults', {skip: process.platform === 'win32'}, () => {
   const f = fixture();
   const previousUmask = process.umask(0o022);

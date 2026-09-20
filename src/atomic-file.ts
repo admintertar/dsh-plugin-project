@@ -45,12 +45,23 @@ export function exclusiveAtomicWriteFile(path: string, content: string, mode = 0
   }
 }
 
-/** Add exact project-local ignore rules once while preserving all existing rules and comments. */
+/**
+ * Reduce an ignore rule to the form used for comparison. A separator anywhere but
+ * the end anchors a pattern, so `/mcp/local.yaml` and `mcp/local.yaml` are the same
+ * rule; a bare `local.yaml` is unanchored and must stay distinct from `/local.yaml`.
+ */
+function canonicalIgnoreRule(rule: string): string {
+  const body = rule.replace(/\/+$/, '');
+  const withoutLeading = body.replace(/^\/+/, '');
+  return withoutLeading.includes('/') ? withoutLeading : body;
+}
+
+/** Add project-local ignore rules once while preserving all existing rules and comments. */
 export function appendGitignoreRules(root: string, rules: readonly string[]): void {
   const path = join(root, '.gitignore');
   const original = existsSync(path) ? readFileSync(path, 'utf8') : '';
-  const existing = new Set(original.split(/\r?\n/));
-  const missing = rules.filter(rule => !existing.has(rule));
+  const existing = new Set(original.split(/\r?\n/).map(canonicalIgnoreRule));
+  const missing = rules.filter(rule => !existing.has(canonicalIgnoreRule(rule)));
   if (missing.length === 0) return;
   const prefix = original.length === 0 || original.endsWith('\n') ? original : `${original}\n`;
   // Ignore rules are public project metadata; replacing an existing file must
