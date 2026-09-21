@@ -56,7 +56,9 @@ writeFileSync(join(runtime, '.yarnrc.yml'), 'nodeLinker: node-modules\nenableScr
 // would treat this directory as an undeclared workspace of the plugin checkout,
 // so seed an empty lockfile once and let later runs reuse what install writes.
 if (!existsSync(join(runtime, 'yarn.lock'))) writeFileSync(join(runtime, 'yarn.lock'), '');
-const installed = spawnSync(process.platform === 'win32' ? 'corepack.cmd' : 'corepack', ['yarn', 'install'], {cwd: runtime, stdio: 'inherit'});
+// Node refuses to spawn a .cmd launcher without a shell since the CVE-2024-27980
+// fix, which made this step fail silently on Windows (status null, no output).
+const installed = spawnSync(process.platform === 'win32' ? 'corepack.cmd' : 'corepack', ['yarn', 'install'], {cwd: runtime, stdio: 'inherit', shell: process.platform === 'win32'});
 if (installed.status !== 0) process.exit(installed.status ?? 1);
 const scope = resolve('node_modules/@deepseek-ai');
 const target = join(runtime, 'node_modules/@deepseek-ai');
