@@ -6,11 +6,13 @@ import {parseArgs} from 'node:util';
 import {verifyProjectShell} from '../src/project-shell-development.ts';
 import {exportOfficialRuntime} from '../src/official-runtime-development.ts';
 
-const {values, positionals} = parseArgs({allowPositionals: true, options: {
+// Yarn 4 forwards the literal "--" separator to the script (npm swallowed it),
+// so strip it to keep the documented `-- <args>` invocation working.
+const {values, positionals} = parseArgs({args: process.argv.slice(2).filter(arg => arg !== '--'), allowPositionals: true, options: {
   edition: {type: 'string', default: 'stable'}, desktop: {type: 'string'}, shell: {type: 'string'},
 }});
 if (positionals.length > 1 || [values.desktop, values.shell, positionals[0]].filter(Boolean).length > 1) {
-  throw new Error('Usage: npm run setup -- --desktop /path/to/official-desktop-source (or --shell /path/to/dsh-project-desktop)');
+  throw new Error('Usage: yarn run setup -- --desktop /path/to/official-desktop-source (or --shell /path/to/dsh-project-desktop)');
 }
 if (values.edition !== 'stable') throw new Error('Only stable is supported; beta development has been retired');
 const edition = 'stable';
@@ -18,7 +20,7 @@ const saved = existsSync('.dev/runtime-source.json') ? JSON.parse(readFileSync('
 const explicitShell = values.shell ?? positionals[0];
 const desktopSource = values.desktop ?? (explicitShell ? undefined : saved.desktopSource);
 if (!desktopSource && !explicitShell && !saved.shell) {
-  throw new Error('Run npm run setup -- --desktop /path/to/official-desktop-source (or --shell /path/to/dsh-project-desktop)');
+  throw new Error('Run yarn run setup -- --desktop /path/to/official-desktop-source (or --shell /path/to/dsh-project-desktop)');
 }
 const prepared = desktopSource
   ? exportOfficialRuntime(resolve('.'), desktopSource)
@@ -38,13 +40,23 @@ for (const entry of inventory.packages) {
 }
 const runtime = resolve('.dev/runtime');
 mkdirSync(runtime, {recursive: true});
+// Yarn 4 equivalent of the former npm install. The archive inventory already
+// names every official package, so it supplies both the direct dependency set
+// and the resolutions that pin the whole transitive tree to the same stable
+// tarballs. Yarn does not recursively auto-install peers the way npm does, so
+// the one peer npm previously added implicitly is declared explicitly at the
+// version the official release preapproves (see dsh-desktop-source/.yarnrc.yml).
+const runtimeDependencies = {...overrides, '@deepseek-ai/cordis-plugin-group': '1.0.2'};
 writeFileSync(join(runtime, 'package.json'), JSON.stringify({
   name: 'project-local-runtime', private: true, type: 'module',
-  dependencies: Object.fromEntries([...new Set(['@deepseek-ai/dsh', '@deepseek-ai/dsh-client-ui-slots', '@deepseek-ai/dsh-client-store', '@deepseek-ai/dsh-client-ui-primitives',
-    ...Object.keys(JSON.parse(readFileSync('package.json', 'utf8')).devDependencies).filter(name => name.startsWith('@deepseek-ai/dsh-')),
-  ])].map(name => [name, overrides[name]])), overrides,
+  packageManager: 'yarn@4.18.0', dependencies: runtimeDependencies, resolutions: overrides,
 }, null, 2) + '\n');
-const installed = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], {cwd: runtime, stdio: 'inherit'});
+writeFileSync(join(runtime, '.yarnrc.yml'), 'nodeLinker: node-modules\nenableScripts: false\n');
+// Yarn derives the project boundary from the nearest lockfile. Without one it
+// would treat this directory as an undeclared workspace of the plugin checkout,
+// so seed an empty lockfile once and let later runs reuse what install writes.
+if (!existsSync(join(runtime, 'yarn.lock'))) writeFileSync(join(runtime, 'yarn.lock'), '');
+const installed = spawnSync(process.platform === 'win32' ? 'corepack.cmd' : 'corepack', ['yarn', 'install'], {cwd: runtime, stdio: 'inherit'});
 if (installed.status !== 0) process.exit(installed.status ?? 1);
 const scope = resolve('node_modules/@deepseek-ai');
 const target = join(runtime, 'node_modules/@deepseek-ai');
@@ -56,9 +68,9 @@ if (existsSync(scope) || lstatSync(scope, {throwIfNoEntry: false})) {
     if (!allowed.includes(resolve('node_modules', readlinkSync(scope)))) throw new Error('Refusing to replace an unmanaged @deepseek-ai link');
     unlinkSync(scope);
   } else {
-    const backup = join(mkdtempSync(resolve('.dev/npm-runtime-backup-')), '@deepseek-ai');
+    const backup = join(mkdtempSync(resolve('.dev/runtime-backup-')), '@deepseek-ai');
     renameSync(scope, backup);
-    console.log(`Preserved previous npm runtime packages at ${backup}`);
+    console.log(`Preserved previous runtime packages at ${backup}`);
   }
 }
 symlinkSync(target, scope, 'junction');

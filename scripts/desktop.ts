@@ -4,7 +4,8 @@ import {parseArgs} from 'node:util';
 import {resolveProjectFile} from '../src/project-files.ts';
 import {verifyProjectShell} from '../src/project-shell-development.ts';
 
-const {values} = parseArgs({options: {
+// Yarn 4 forwards the literal "--" separator to the script (npm swallowed it).
+const {values} = parseArgs({args: process.argv.slice(2).filter(arg => arg !== '--'), options: {
   shell: {type: 'string'}, project: {type: 'string'},
   edition: {type: 'string', default: 'stable'},
   'prepare-only': {type: 'boolean', default: false},

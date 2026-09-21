@@ -1,5 +1,12 @@
 # Dependencies, build products and isolated development profiles
 node_modules/
+# Yarn 4 keeps its resolution state here; only the lockfile is versioned.
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
 /lib/
 /.dev/
 /*.tgz

@@ -14,7 +14,7 @@ import {readCompatibilityPin} from '../src/desktop-runtime.ts';
 const repository = resolve('.');
 // Historical fork integration only; current native acceptance lives in the Shell.
 const desktopRepository = process.env.DSH_PROJECT_DESKTOP_REPOSITORY;
-if (!desktopRepository) throw new Error('Historical test requires an explicit DSH_PROJECT_DESKTOP_REPOSITORY; use npm run test:desktop for the independent Shell');
+if (!desktopRepository) throw new Error('Historical test requires an explicit DSH_PROJECT_DESKTOP_REPOSITORY; use yarn run test:desktop for the independent Shell');
 for (const edition of ['beta', 'stable'] satisfies DesktopEdition[]) {
   test(`${edition}: real Desktop Host loads Project tools, API and browser module`, () => {
     const stateRoot = mkdtempSync(join(tmpdir(), 'project-desktop-host-'));

@@ -9,7 +9,7 @@ const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf8'));
 export function resolveProjectShell(repository: string, supplied?: string): string {
   const source = join(repository, '.dev/runtime-source.json');
   const shell = supplied ?? (existsSync(source) ? readJson(source).shell : undefined);
-  if (!shell) throw new Error('Run npm run setup -- /path/to/dsh-project-desktop first, or provide --shell');
+  if (!shell) throw new Error('Run yarn run setup -- /path/to/dsh-project-desktop first, or provide --shell');
   const directory = realpathSync(resolve(shell));
   if (readJson(join(directory, 'package.json')).name !== 'dsh-project-desktop') {
     throw new Error('Expected the independent dsh-project-desktop Shell, not a Desktop fork');

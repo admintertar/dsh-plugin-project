@@ -9,10 +9,10 @@ import {readProjectShellRuntime, resolveProjectShell, verifyProjectShell} from '
 test('development resolves the saved independent Shell and rejects the old checkout', () => {
   const root = mkdtempSync(join(tmpdir(), 'project-shell-path-'));
   try {
-    assert.throws(() => resolveProjectShell(root), /Run npm run setup/);
+    assert.throws(() => resolveProjectShell(root), /Run yarn run setup/);
     mkdirSync(join(root, '.dev'));
     writeFileSync(join(root, '.dev/runtime-source.json'), JSON.stringify({desktop: root, edition: 'beta'}));
-    assert.throws(() => resolveProjectShell(root), /Run npm run setup/, 'never falls back to the retired Desktop path');
+    assert.throws(() => resolveProjectShell(root), /Run yarn run setup/, 'never falls back to the retired Desktop path');
     writeFileSync(join(root, 'package.json'), JSON.stringify({name: 'dsh-desktop'}));
     assert.throws(() => resolveProjectShell(root, root), /independent dsh-project-desktop/);
     writeFileSync(join(root, 'package.json'), JSON.stringify({name: 'dsh-project-desktop'}));

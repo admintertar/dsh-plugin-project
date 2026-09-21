@@ -7,18 +7,20 @@ import { readProject } from '../src/project.ts';
 import {readCompatibilityPin} from '../src/desktop-runtime.ts';
 import {migrateProfilePluginLink, prepareProfilePlugin} from '../src/development-plugin.ts';
 
-const manifest = resolveProjectFile(resolve(process.argv[2] ?? 'examples/demo-web/demo-web.agent-project'));
-const port = Number(process.argv[3] ?? 43191);
+// Yarn 4 forwards the literal "--" separator to the script (npm swallowed it).
+const args = process.argv.slice(2).filter(arg => arg !== '--');
+const manifest = resolveProjectFile(resolve(args[0] ?? 'examples/demo-web/demo-web.agent-project'));
+const port = Number(args[1] ?? 43191);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Port must be between 1024 and 65535');
 const repository = realpathSync('.');
-if (!existsSync('.dev/runtime-source.json')) throw new Error('Run npm run setup first');
+if (!existsSync('.dev/runtime-source.json')) throw new Error('Run yarn run setup first');
 const source = JSON.parse(readFileSync('.dev/runtime-source.json', 'utf8'));
 const edition = source.edition ?? 'stable';
-if (edition !== 'stable') throw new Error('Only stable is supported; run npm run setup with a stable runtime source');
+if (edition !== 'stable') throw new Error('Only stable is supported; run yarn run setup with a stable runtime source');
 const expected = readCompatibilityPin(repository).harness[edition];
-if (source.version !== expected.version || source.commit !== expected.commit) throw new Error('Development runtime differs from upstream.json; run npm run setup again');
+if (source.version !== expected.version || source.commit !== expected.commit) throw new Error('Development runtime differs from upstream.json; run yarn run setup again');
 const runtime = resolve('.dev/runtime/node_modules');
-if (!existsSync(join(runtime, '@deepseek-ai/dsh/lib/bin.js'))) throw new Error('Run npm run setup first');
+if (!existsSync(join(runtime, '@deepseek-ai/dsh/lib/bin.js'))) throw new Error('Run yarn run setup first');
 const projectKey = createHash('sha256').update(manifest).digest('hex').slice(0, 16);
 const projectHome = resolve('.dev/projects', projectKey);
 const profile = join(projectHome, 'profiles/web');
