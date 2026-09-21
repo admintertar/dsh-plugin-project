@@ -113,7 +113,7 @@ export class ResourceCloneManager {
       parent = join(parent, part);
       if (createParents) {try {mkdirSync(parent, {mode: 0o755});} catch (error) {if (!nodeError(error, 'EEXIST')) throw error;}}
       try {
-        if (lstatSync(parent).isSymbolicLink() || !statSync(parent).isDirectory() || !within(this.store.root, realpathSync(parent))) resourceFailure('resource-target-invalid', 422);
+        if (lstatSync(parent).isSymbolicLink() || !statSync(parent).isDirectory() || !within(realpathSync.native(this.store.root), realpathSync.native(parent))) resourceFailure('resource-target-invalid', 422);
       } catch (error) {if (!nodeError(error, 'ENOENT')) throw error;}
     }
     const target = resolve(this.store.root, ...parts);
@@ -123,7 +123,10 @@ export class ResourceCloneManager {
   private async untracked(target: string): Promise<void> {
     let outer: string;
     try {outer = await this.run(['rev-parse', '--show-toplevel'], this.store.root);} catch {return;}
-    const rel = relative(outer, target).split(sep).join('/');
+    // Git reports the resolved long form while the store root may still carry 8.3 short
+    // names, and relative() would then compute a nonsense path; canonicalize both sides.
+    const canonical = resolve(realpathSync.native(this.store.root), relative(this.store.root, target));
+    const rel = relative(realpathSync.native(outer), canonical).split(sep).join('/');
     const tracked = await this.run(['--literal-pathspecs', 'ls-files', '--', rel], outer);
     if (tracked) resourceFailure('target-tracked');
   }

@@ -293,7 +293,7 @@ export class ResourceSyncManager {
     // Linked worktrees share refs and fetch locks. Only these related resources wait on each other;
     // separate clones, even of the same remote URL, remain fully independent.
     const directory = await this.run(['rev-parse', '--git-common-dir'], item.path!, {signal, sync: true});
-    const key = realpathSync(resolve(item.path!, directory));
+    const key = realpathSync.native(resolve(item.path!, directory));
     const previous = this.repositoryTails.get(key);
     let release!: () => void;
     const tail = new Promise<void>(done => {release = done;});
