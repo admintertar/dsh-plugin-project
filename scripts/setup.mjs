@@ -58,7 +58,11 @@ writeFileSync(join(runtime, '.yarnrc.yml'), 'nodeLinker: node-modules\nenableScr
 if (!existsSync(join(runtime, 'yarn.lock'))) writeFileSync(join(runtime, 'yarn.lock'), '');
 // Node refuses to spawn a .cmd launcher without a shell since the CVE-2024-27980
 // fix, which made this step fail silently on Windows (status null, no output).
-const installed = spawnSync(process.platform === 'win32' ? 'corepack.cmd' : 'corepack', ['yarn', 'install'], {cwd: runtime, stdio: 'inherit', shell: process.platform === 'win32'});
+// The seeded lockfile above is intentionally empty, so this first install has to be
+// allowed to write it. CI exports CI=true, which turns Yarn's immutable installs on.
+const installed = spawnSync(process.platform === 'win32' ? 'corepack.cmd' : 'corepack', ['yarn', 'install'],
+  {cwd: runtime, stdio: 'inherit', shell: process.platform === 'win32',
+    env: {...process.env, YARN_ENABLE_IMMUTABLE_INSTALLS: 'false'}});
 if (installed.status !== 0) process.exit(installed.status ?? 1);
 const scope = resolve('node_modules/@deepseek-ai');
 const target = join(runtime, 'node_modules/@deepseek-ai');
