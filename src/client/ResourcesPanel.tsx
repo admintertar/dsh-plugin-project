@@ -128,8 +128,6 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
           // Committing and switching stay usable without a remote, so the card gates each action itself.
           loadBranches: () => controller.branches(item.id),
           loadChanges: () => controller.changes(item.id)} : undefined}>
-          {item.git?.diagnostic && <span className="project-mcp-error-anchor"><IconAction label={errorText(item.git.diagnostic, t)} icon={<IconWarningOutline16 />}
-            action={event => {opener.current = event.currentTarget; setDetails({name: item.name, error: item.git!.diagnostic!});}} /></span>}
           {item.type === 'git' && item.status === 'ready' && (!item.url || ['unlinked', 'no-upstream'].includes(item.git?.sync?.status ?? '')) &&
             <IconAction label={`${t(item.git?.sync?.status === 'no-upstream' ? 'resourceSetTracking' : 'resourceAssociate')}: ${item.name}`}
               icon={<IconLinkOutline16 />} disabled={locked || !state.data?.canClone} action={event => open(event, 'associate', item)} />}
@@ -140,6 +138,10 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
           <IconAction label={`${t('removeResource')}: ${item.name}`} icon={<IconTrashOutline16 />} disabled={locked} action={event => {
             opener.current = event.currentTarget; controller.clearError(); setRemoving({item, revision: state.data!.revision});
           }} />
+          {/* The diagnostic closes the action row: the details action already claims the row's free space on the left,
+              so an auto margin here would open a gap in the middle of the buttons. */}
+          {item.git?.diagnostic && <IconAction label={errorText(item.git.diagnostic, t)} icon={<IconWarningOutline16 />}
+            action={event => {opener.current = event.currentTarget; setDetails({name: item.name, error: item.git!.diagnostic!});}} />}
       </ResourceCard>;
     })}</div>
     {Boolean(state.data?.operations.length) && <section className="project-resource-operations"><h2>{t('resourceOperations')}</h2>

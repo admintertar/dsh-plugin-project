@@ -100,7 +100,6 @@ button.project-tool-main:hover:not(:disabled),button.project-tool-main:active:no
 .project-mcp-tools:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
 .project-mcp-tools ul{display:flex;flex-direction:column;list-style:none;margin:0;padding:0;overflow-wrap:anywhere}.project-mcp-tools li{min-width:0;line-height:20px}.project-mcp-tools code{display:block}
 .project-mcp-card-footer{display:flex;justify-content:flex-end;gap:2px;padding:6px 10px;border-top:.5px solid var(--dsw-alias-border-l2)}.project-mcp-action-anchor{display:inline-flex}
-.project-mcp-error-anchor{margin-right:auto}
 .project-mcp-error-icon{color:var(--dsw-alias-state-error-primary)}
 button.project-mcp-action{width:28px;height:28px;padding:6px;border:0;border-radius:7px;background:none;color:var(--dsw-alias-label-tertiary)}button.project-mcp-action:disabled{opacity:.4}
 button.project-mcp-action:hover:not(:disabled){background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}button.project-mcp-action-danger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary)}.project-panel button.project-mcp-action:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px}

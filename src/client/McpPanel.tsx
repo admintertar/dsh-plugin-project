@@ -105,16 +105,17 @@ export function McpPanel({controller, t}: {controller: ProjectCapabilityControll
         </div>
         <div className="project-mcp-card-footer">
           {/* Pinned Button does not forward refs; Tooltip needs a DOM anchor for positioning. */}
-          {hasError && <Tooltip label={t(status === 'reconnecting' ? 'mcpReconnectingBody' : 'mcpConnectionError')} side="top" maxWidth={320} disabled={errorDetails !== null}>
-            <span className="project-mcp-action-anchor project-mcp-error-anchor"><Button size="sm" icon={<IconWarningOutline16 className="project-mcp-error-icon" />} aria-label={`${t('mcpErrorDetails')}: ${server.serverName}`} aria-haspopup="dialog"
-              onClick={event => {errorOpener.current = event.currentTarget; setErrorDetails({server, reconnecting: status === 'reconnecting'});}} /></span>
-          </Tooltip>}
           <Tooltip label={t('edit')} side="top" delayMs={400} disabled={busy}><span className="project-mcp-action-anchor">
             <Button className="project-mcp-action" size="sm" icon={<IconEditOutline16 />} disabled={busy} aria-label={`${t('edit')}: ${server.serverName}`} onClick={() => edit(server)} />
           </span></Tooltip>
           <Tooltip label={t('delete')} side="top" delayMs={400} disabled={busy}><span className="project-mcp-action-anchor">
             <Button className="project-mcp-action project-mcp-action-danger" size="sm" icon={<IconTrashOutline16 />} disabled={busy} aria-label={`${t('delete')}: ${server.serverName}`} onClick={() => setRemoving(server)} />
           </span></Tooltip>
+          {/* The diagnostic closes the action row, matching the resource card, instead of claiming the row's free space on the left. */}
+          {hasError && <Tooltip label={t(status === 'reconnecting' ? 'mcpReconnectingBody' : 'mcpConnectionError')} side="top" maxWidth={320} disabled={errorDetails !== null}>
+            <span className="project-mcp-action-anchor"><Button size="sm" icon={<IconWarningOutline16 className="project-mcp-error-icon" />} aria-label={`${t('mcpErrorDetails')}: ${server.serverName}`} aria-haspopup="dialog"
+              onClick={event => {errorOpener.current = event.currentTarget; setErrorDetails({server, reconnecting: status === 'reconnecting'});}} /></span>
+          </Tooltip>}
         </div>
       </article>;
     })}</div>
