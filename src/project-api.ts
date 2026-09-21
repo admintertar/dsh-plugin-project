@@ -11,6 +11,7 @@ import type {SkillsSnapshot, McpSnapshot, ToolsSnapshot, ProjectToolView} from '
 import {sessionCapabilities} from './session-capabilities.ts';
 import {registerTaskApi} from './task-api.ts';
 import type {ResourceGitAuthentication} from './resource-auth.ts';
+import {pickDesktopDirectory, pickSource} from './directory-pick.ts';
 
 interface ProjectCapabilities {
   tasks(): ProjectTaskStore;
@@ -65,6 +66,12 @@ export function registerProjectApi(ctx: Context, read: () => ProjectView, capabi
     }), `project: ${path} API`);
   };
   register('snapshot', ['GET'], async () => read());
+  // The Desktop shell serves Windows, where the launcher pins the browse backend:
+  // this route opens the shell's own chooser so a local resource stays pickable.
+  register('pick', ['POST'], async () => {
+    if (pickSource(ctx) !== 'desktop') throw new ProjectHttpError(409, 'native-picker-unavailable');
+    return {path: await pickDesktopDirectory(ctx)};
+  });
   const memoryQueue = queue();
   if (updateMemory !== undefined) register('memory', ['POST'], async req => {
     // JSON escaping can make the request larger than the decoded 64 KB document.
@@ -79,12 +86,13 @@ export function registerProjectApi(ctx: Context, read: () => ProjectView, capabi
   const {tasks, skills, mcpStore, mcp} = capabilities;
   const skillQueue = queue();
   const mcpQueue = queue();
-  const canImport = () => (ctx.get('directoryPicker') as {capability(): {kind: string}} | undefined)?.capability().kind === 'native';
+  const canImport = () => pickSource(ctx) !== null;
 
   const closeTasks = registerTaskApi(ctx, register, read, tasks, assertOpen, capabilities.gitAuth);
   const skillSnapshot = async (catalog: Awaited<ReturnType<typeof sessionCapabilities>>): Promise<SkillsSnapshot> => {
     const value = await skills.snapshot({cwd: read().root, scope: catalog.scope}, catalog.skills);
-    const data = {...value, context: catalog.context, ...(value.diagnostic === undefined ? {} : {diagnostic: 'invalid-skill-index'}), canImport: canImport()};
+    const data = {...value, context: catalog.context, ...(value.diagnostic === undefined ? {} : {diagnostic: 'invalid-skill-index'}),
+      canImport: canImport(), pickSource: pickSource(ctx)};
     return {...data, version: version(data)};
   };
   const mcpSnapshot = (): McpSnapshot => {

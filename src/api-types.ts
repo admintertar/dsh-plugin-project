@@ -20,7 +20,13 @@ export interface TasksSnapshot {
 }
 export interface TaskFilePreview {name: string; mime: string; extension: string; size: number; version: string; text?: string; base64?: string}
 export interface CapabilityContext {kind: 'project' | 'session'; sessionId?: string; agentPreset?: string}
-export type SkillsSnapshot = ProjectSkillsSnapshot & {version: string; canImport: boolean; context: CapabilityContext};
+/**
+ * The local attended chooser the Host can drive: the official directory-picker
+ * seam (`native`) or the Desktop shell runtime (`desktop`, which serves Windows
+ * where the launcher pins the browse backend). `null` means neither is reachable.
+ */
+export type PickSource = 'native' | 'desktop';
+export type SkillsSnapshot = ProjectSkillsSnapshot & {version: string; canImport: boolean; pickSource: PickSource | null; context: CapabilityContext};
 export interface ProjectToolView {name: string; description: string; group: 'dsh' | 'project' | 'mcp'}
 export interface ToolsSnapshot {version: string; context: CapabilityContext; tools: ProjectToolView[]}
 export interface McpSnapshot {version: string; servers: ProjectMcpServerView[]; runtime: ProjectMcpRuntimeView[]}

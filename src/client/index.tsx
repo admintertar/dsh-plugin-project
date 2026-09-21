@@ -50,6 +50,7 @@ import {ResourcesOverview, ResourcesPanel} from './ResourcesPanel.tsx';
 import {ResourceAuthDialog} from './ResourceAuthDialog.tsx';
 import {TaskContinuationController, type ContinueTask, type TaskContinuationResult} from './task-continuation.ts';
 import {ProjectPanelTransition} from './panel-transition.ts';
+import {createPickDirectory, type PickDirectory} from './pick-directory.ts';
 
 export const inject = ['slots', 'sessions', 'layout', 'workspaces', 'uiWorkspace', 'locale', 'sidebarRight', 'remote', 'conversation', 'documentPreviews'];
 interface State {project?: ProjectView; error?: string; busy: boolean}
@@ -57,7 +58,7 @@ interface Controller {
   capabilities: ProjectCapabilityController;
   resources: ResourceController;
   taskSidebar: ReturnType<typeof createTaskSidebar>;
-  pickDirectory(): Promise<string | null>;
+  pickDirectory: PickDirectory;
   sessionTitle(id: string): string;
   canOpenSession(id: string): boolean;
   getSnapshot(): State;
@@ -157,7 +158,7 @@ export async function apply(ctx: Context): Promise<void> {
     capabilities,
     resources,
     taskSidebar,
-    pickDirectory: () => ctx.uiWorkspace.pickDirectory(),
+    pickDirectory: createPickDirectory(ctx.uiWorkspace),
     sessionTitle: id => sessions.list.getSnapshot().byId[id as SessionId]?.displayTitle ?? id,
     getSnapshot: () => state,
     subscribe(listener) {listeners.add(listener); return () => {listeners.delete(listener);};},

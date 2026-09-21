@@ -10,6 +10,7 @@ import type {ResourceController} from './resource-controller.ts';
 import {ResourceCard} from './ResourceCard.tsx';
 import {resourceErrorText as errorText} from './resource-ui.ts';
 import {managedResources} from '../resource-scope.ts';
+import type {PickDirectory} from './pick-directory.ts';
 const operationLabels = {cloning: 'resourceCloning', cancelling: 'resourceCancelling', cancelled: 'resourceCancelled', failed: 'resourceCloneFailed',
   pending: 'resourcePending', completed: 'resourceCompleted', interrupted: 'resourceInterrupted'} as const;
 
@@ -29,7 +30,7 @@ function IconAction({label, icon, disabled, action}: {label: string; icon: React
   </span></Tooltip>;
 }
 
-export function ResourcesPanel({controller, root, pickDirectory, t}: {controller: ResourceController; root: string; pickDirectory(): Promise<string | null>; t: CapabilityTranslate}) {
+export function ResourcesPanel({controller, root, pickDirectory, t}: {controller: ResourceController; root: string; pickDirectory: PickDirectory; t: CapabilityTranslate}) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const resources = state.data && managedResources(state.data.resources, root);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -64,7 +65,7 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
   const pick = async () => {
     const current = ++sequence.current; setSelecting(true); setFormError(undefined);
     try {
-      const path = await pickDirectory();
+      const path = await pickDirectory(state.data?.pickSource);
       if (path === null || sequence.current !== current) return;
       const inspection = await controller.inspect(path);
       if (sequence.current !== current) return;

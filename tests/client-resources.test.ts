@@ -2,7 +2,7 @@ import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
 import {ResourceController} from '../src/client/resource-controller.ts';
 
-const empty = {revision: 'a'.repeat(64), version: 'initial', resources: [], operations: [], canPick: true, canClone: true};
+const empty = {revision: 'a'.repeat(64), version: 'initial', resources: [], operations: [], canPick: true, pickSource: 'native', canClone: true};
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), {status});
 
 test('resource controller retains a successful snapshot on error and ignores late GETs after mutation', async () => {

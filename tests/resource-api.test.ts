@@ -17,7 +17,10 @@ async function fixture(override?: (...args: Parameters<GitRun>) => ReturnType<Gi
   const f = resourceFixture(); gitFixture(f.outside);
   const ctx = new Context(); const routes: WebRoute[] = [];
   let native = true;
+  let desktopPicker: (() => Promise<string | null>) | undefined;
   ctx.provide('directoryPicker', {capability: () => ({kind: native ? 'native' : 'browse'})});
+  // The Desktop shell bridges its own Electron chooser here; Windows pins browse and relies on it.
+  ctx.provide('desktopRuntime', {get pickDirectory() {return desktopPicker;}});
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     const route = routes.find(route => route.kind === 'exact' ? route.path === path : path.startsWith(route.path + '/'));
@@ -34,7 +37,8 @@ async function fixture(override?: (...args: Parameters<GitRun>) => ReturnType<Gi
   const headers = {authorization: 'fixture', origin, 'content-type': 'application/json'};
   const get = () => fetch(origin + '/api/project/resources', {headers});
   const post = (path: string, body: unknown) => fetch(origin + '/api/project/resources' + path, {method: 'POST', headers, body: JSON.stringify(body)});
-  return {...f, ctx, clones, sync, close, get, post, headers, origin, setNative: (value: boolean) => {native = value;}, cleanup: async () => {
+  return {...f, ctx, clones, sync, close, get, post, headers, origin, setNative: (value: boolean) => {native = value;},
+    setDesktopPicker: (picker?: () => Promise<string | null>) => {desktopPicker = picker;}, cleanup: async () => {
     await close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await ctx.fiber.dispose(); f.cleanup();
   }};
 }
@@ -53,13 +57,27 @@ test('resource API authenticates every endpoint and validates native capability,
     assert.equal((await f.post('/operations/12345678-1234-1234-1234-123456789abc/cancel', {})).status, 404);
     assert.equal((await f.post('/sync', {id: 'missing', action: 'update', expectedRevision: revision})).status, 404);
     assert.equal((await f.post('/sync', {id: 'root', action: 'check', expectedRevision: 'a'.repeat(64)})).status, 409);
+    const native = await (await f.get()).json();
+    assert.equal(native.canPick, true); assert.equal(native.pickSource, 'native');
     f.setNative(false);
-    assert.equal((await (await f.get()).json()).canPick, false);
+    const unavailable = await (await f.get()).json();
+    assert.equal(unavailable.canPick, false); assert.equal(unavailable.pickSource, null);
     assert.equal((await f.post('/inspect', {path: f.outside})).status, 409);
     assert.equal((await f.post('', {action: 'addLocal', name: 'No native picker', type: 'local', path: f.outside, expectedRevision: revision})).status, 409);
     assert.equal(f.store.revision(), revision);
     const rejected = await f.post('/clone', {requestId: 'one', expectedRevision: revision, name: 'Secret', path: 'resources/secret', url: 'https://user:private-fixture@example.com/repo'});
     assert.equal(rejected.status, 422); assert.doesNotMatch(await rejected.text(), /private-fixture/);
+    // The Desktop shell serves Windows where the launcher pins browse; its own runtime keeps picking available.
+    f.setDesktopPicker(async () => f.outside);
+    const desktop = await (await f.get()).json();
+    assert.equal(desktop.canPick, true); assert.equal(desktop.pickSource, 'desktop');
+    assert.equal((await f.post('/inspect', {path: f.outside})).status, 200);
+    const added = await f.post('', {action: 'addLocal', name: 'Desktop picker', type: 'local', path: f.outside, expectedRevision: revision});
+    assert.equal(added.status, 200);
+    assert.equal((await added.json()).pickSource, 'desktop');
+    f.setDesktopPicker(undefined);
+    const dropped = await (await f.get()).json();
+    assert.equal(dropped.canPick, false); assert.equal(dropped.pickSource, null);
   } finally {await f.cleanup();}
 });
 

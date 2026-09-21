@@ -8,6 +8,7 @@ import {ProjectResourceStore, resourceId} from './project-resources.ts';
 import {nodeError, optionalText, resourceFailure, within} from './resource-files.ts';
 import {inspectResourceGit, ResourceGitError, validateResourceBranch, type GitRun} from './resource-git.ts';
 import {validResourceUrl, type ResourceCloneOperation, type ResourceCloneRequest, type ResourcesSnapshot} from './resource-contract.ts';
+import type {PickSource} from './api-types.ts';
 import type {ResourceGitAuthentication} from './resource-auth.ts';
 import {isProjectRootResource, managedResources} from './resource-scope.ts';
 
@@ -65,7 +66,7 @@ export class ResourceCloneManager {
     if (this.available !== undefined) return this.available;
     return this.availability ??= this.run(['--version'], this.store.root).then(() => this.available = true, () => this.available = false);
   }
-  async snapshot(canPick: boolean): Promise<ResourcesSnapshot> {
+  async snapshot(canPick: boolean, pickSource: PickSource | null = canPick ? 'native' : null): Promise<ResourcesSnapshot> {
     const canClone = await this.gitAvailable();
     const revision = this.store.revision();
     const project = this.project();
@@ -83,7 +84,7 @@ export class ResourceCloneManager {
         ...(cached.value.url && item.url && cached.value.url !== item.url ? {diagnostic: 'resource-origin-mismatch'} : {})}
         : {diagnostic: canClone ? 'resource-git-invalid' : 'git-unavailable'};
     }));
-    const data = {revision, resources, operations: this.operations.map(item => ({...item})), canPick, canClone};
+    const data = {revision, resources, operations: this.operations.map(item => ({...item})), canPick, pickSource, canClone};
     return {...data, version: createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 16)};
   }
   /** Shared by cards, overview, Task access and model context; a directory alone is not a finished clone. */

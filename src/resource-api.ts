@@ -6,6 +6,7 @@ import type {ProjectResourceStore} from './project-resources.ts';
 import type {ResourceCloneManager} from './resource-clones.ts';
 import {ResourceSyncManager} from './resource-sync.ts';
 import {gitKeyChoices} from './resource-auth.ts';
+import {pickSource} from './directory-pick.ts';
 
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
 const name = z.string().trim().min(1).max(160);
@@ -22,7 +23,7 @@ const actionSchema = z.discriminatedUnion('action', [
 ]);
 const cloneSchema = z.object({requestId: z.string().min(1).max(128), expectedRevision, id: id.optional(), name, url, path, branch}).strict();
 
-/** Native-picked paths are checked again by the Host, behind the same DSH authentication as the other project APIs. */
+/** Picked paths are checked again by the Host, behind the same DSH authentication as the other project APIs. */
 export function registerResourceApi(ctx: Context, store: ProjectResourceStore, clones: ResourceCloneManager,
   sync = new ResourceSyncManager(clones)): () => Promise<void> {
   let closing = false;
@@ -32,7 +33,8 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
     const task = tail.then(() => {open(); return work();});
     tail = task.catch(() => {}); return task;
   };
-  const canPick = () => (ctx.get('directoryPicker') as {capability(): {kind: string}} | undefined)?.capability().kind === 'native';
+  const canPick = () => pickSource(ctx) !== null;
+  const snapshot = () => {const source = pickSource(ctx); return sync.snapshot(source !== null, source);};
   const requirePicker = () => {if (!canPick()) throw new ProjectHttpError(409, 'native-picker-unavailable');};
   const register = (path: string, methods: string[], handler: (req: IncomingMessage) => Promise<unknown>, prefix = false) => {
     ctx.effect(() => ctx.webServer.register({kind: prefix ? 'prefix' : 'exact', path: `/api/project/resources${path}`,
@@ -54,7 +56,7 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
         if ('id' in action) sync.invalidate(action.id);
       });
     }
-    return sync.snapshot(canPick());
+    return snapshot();
   });
   register('/inspect', ['POST'], async req => {
     requirePicker(); const action = z.object({path}).strict().parse(await readJsonBody(req));
@@ -100,7 +102,7 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
       const action = z.object({expectedRevision}).strict().parse(body);
       await queue(() => clones.register(match[1]!, action.expectedRevision));
     }
-    return sync.snapshot(canPick());
+    return snapshot();
   }, true);
   sync.startAutomaticChecks();
   return async () => {closing = true; clones.auth?.dispose(); await Promise.all([tail, clones.dispose(), sync.dispose()]);};

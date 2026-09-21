@@ -4,13 +4,14 @@ import {ProjectSwitch} from './ProjectControls.tsx';
 import type {ProjectCapabilityController} from './controller.ts';
 import {CapabilityError, CatalogContext, useCapability, type CapabilityTranslate} from './capability-ui.tsx';
 import type {ProjectLocaleKey} from '../locales.ts';
+import type {PickDirectory} from './pick-directory.ts';
 
 const sourceLabels: Record<string, ProjectLocaleKey> = {
   bundled: 'skillSourceBundled', 'project-dsh': 'skillSourceWorkspaceDsh', 'project-agents': 'skillSourceWorkspaceAgents',
   'user-dsh': 'skillSourceUserDsh', 'user-agents': 'skillSourceUserAgents', runtime: 'skillSourceRuntime', custom: 'skillSourceCustom',
 };
 
-export function SkillsPanel({controller, t, pickDirectory}: {controller: ProjectCapabilityController; t: CapabilityTranslate; pickDirectory(): Promise<string | null>}) {
+export function SkillsPanel({controller, t, pickDirectory}: {controller: ProjectCapabilityController; t: CapabilityTranslate; pickDirectory: PickDirectory}) {
   const state = useCapability(controller, 'skills');
   const [confirm, setConfirm] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -50,7 +51,7 @@ export function SkillsPanel({controller, t, pickDirectory}: {controller: Project
     </section>
     <Modal open={confirm} title={t('importSkill')} closeLabel={t('close')} onClose={() => {if (!busy) setConfirm(false);}}
       footer={<><Button variant="outline" disabled={busy} onClick={() => setConfirm(false)}>{t('cancel')}</Button><Button variant="primary" disabled={busy} onClick={() => {
-        setPicking(true); void controller.importSkill(pickDirectory).then(ok => {if (ok) setConfirm(false);}).finally(() => setPicking(false));
+        setPicking(true); void controller.importSkill(() => pickDirectory(state.data?.pickSource)).then(ok => {if (ok) setConfirm(false);}).finally(() => setPicking(false));
       }}>{t('selectSkillFolder')}</Button></>}>
       <p>{t('skillTrust')}</p><CapabilityError error={state.error} t={t} />
     </Modal>

@@ -1,4 +1,5 @@
 import type {ResourceView} from './project.ts';
+import type {PickSource} from './api-types.ts';
 
 export const resourceErrorCodes = [
   'operation-failed', 'unauthorized', 'same-origin-json-required', 'body-too-large', 'native-picker-unavailable',
@@ -42,7 +43,7 @@ export interface ResourceCloneOperation {
 }
 export interface ResourcesSnapshot {
   revision: string; version: string; resources: ManagedResource[]; operations: ResourceCloneOperation[];
-  canPick: boolean; canClone: boolean;
+  canPick: boolean; pickSource: PickSource | null; canClone: boolean;
 }
 export type ResourceAction = ({expectedRevision: string} & (
   | {action: 'addLocal'; path: string; name: string; type: 'local' | 'git'; url?: string}

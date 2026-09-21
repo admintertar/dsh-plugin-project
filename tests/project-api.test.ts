@@ -51,7 +51,10 @@ async function fixture(mount: ProjectMcpMount = async () => ({toolNames: ['fixtu
   await ctx.plugin(SkillRegistry);
   await ctx.plugin(ToolRuntime);
   let nativePicker = true;
+  let desktopPicker: (() => Promise<string | null>) | undefined;
   ctx.provide('directoryPicker', {capability: () => ({kind: nativePicker ? 'native' : 'browse'})});
+  // The Desktop shell bridges its own Electron chooser here; Windows pins browse and relies on it.
+  ctx.provide('desktopRuntime', {get pickDirectory() {return desktopPicker;}});
   const routes = new Map<string, WebRoute>();
   const server = createServer((req, res) => {
     const route = routes.get(new URL(req.url ?? '/', 'http://localhost').pathname);
@@ -76,7 +79,9 @@ async function fixture(mount: ProjectMcpMount = async () => ({toolNames: ['fixtu
   const headers = {authorization: 'fixture', origin, 'content-type': 'application/json'};
   const get = (path: string) => fetch(origin + '/api/project/' + path, {headers});
   const post = (path: string, body: unknown) => fetch(origin + '/api/project/' + path, {method: 'POST', headers, body: JSON.stringify(body)});
-  return {root, manifest, memoryPath, ctx, tasks, skills, mcpStore, mcp, origin, headers, get, post, closeApi, setNativePicker: (value: boolean) => {nativePicker = value;}, cleanup: async () => {
+  return {root, manifest, memoryPath, ctx, tasks, skills, mcpStore, mcp, origin, headers, get, post, closeApi,
+    setNativePicker: (value: boolean) => {nativePicker = value;},
+    setDesktopPicker: (picker?: () => Promise<string | null>) => {desktopPicker = picker;}, cleanup: async () => {
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
     await closeApi(); await mcp.dispose(); await skills.dispose(); await ctx.fiber.dispose();
@@ -110,6 +115,12 @@ test('project api authenticates every route and rejects invalid write envelopes 
     }
     assert.equal(mounts, 0);
     assert.deepEqual(f.mcpStore.list(), []);
+    // The Desktop chooser route is POST-only, same-origin JSON and authenticated like every other write.
+    const pick = f.origin + '/api/project/pick';
+    assert.equal((await fetch(pick, {method: 'POST'})).status, 401);
+    assert.equal((await fetch(pick, {method: 'POST', headers: {...f.headers, origin: 'http://localhost:1234'}, body: '{}'})).status, 403);
+    assert.equal((await fetch(pick, {method: 'POST', headers: {...f.headers, 'content-type': 'text/plain'}, body: '{}'})).status, 403);
+    assert.equal((await f.get('pick')).status, 405);
   } finally {await f.cleanup();}
 });
 
@@ -314,10 +325,26 @@ test('project api imports and toggles a real Skill Provider', async () => {
     const data = await (await f.post('skills', {action: 'enable', name: 'api-skill', enabled: false})).json();
     assert.equal(data.project[0].enabled, false);
     assert.equal(await f.ctx.skills.get('api-skill'), undefined);
-    assert.equal(data.canImport, true);
+    assert.equal(data.canImport, true); assert.equal(data.pickSource, 'native');
+    // The native seam keeps its own client flow, so the Desktop chooser route stays closed.
+    assert.equal((await f.post('pick', {})).status, 409);
     f.setNativePicker(false);
-    assert.equal((await (await f.get('skills')).json()).canImport, false);
+    const unavailable = await (await f.get('skills')).json();
+    assert.equal(unavailable.canImport, false); assert.equal(unavailable.pickSource, null);
     assert.equal((await f.post('skills', {action: 'import', path: bundle})).status, 409);
+    // A Desktop shell that pins browse still bridges its own chooser into this Host.
+    const desktopBundle = join(source, 'desktop-skill'); mkdirSync(desktopBundle);
+    writeFileSync(join(desktopBundle, 'SKILL.md'), '---\nname: desktop-skill\ndescription: Desktop fixture\n---\nUse this skill.');
+    f.setDesktopPicker(async () => desktopBundle);
+    const desktop = await (await f.get('skills')).json();
+    assert.equal(desktop.canImport, true); assert.equal(desktop.pickSource, 'desktop');
+    const picked = await f.post('pick', {});
+    assert.equal(picked.status, 200); assert.deepEqual(await picked.json(), {path: desktopBundle});
+    assert.equal((await f.post('skills', {action: 'import', path: desktopBundle})).status, 200);
+    assert.ok(await f.ctx.skills.get('desktop-skill'));
+    // Cancelling the Desktop chooser reports a null path instead of an error.
+    f.setDesktopPicker(async () => null);
+    assert.deepEqual(await (await f.post('pick', {})).json(), {path: null});
   } finally {await f.cleanup(); rmSync(source, {recursive: true, force: true});}
 });
 

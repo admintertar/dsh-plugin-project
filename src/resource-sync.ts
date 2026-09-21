@@ -6,6 +6,7 @@ import {resourceFailure} from './resource-files.ts';
 import {ResourceGitError, type GitRun} from './resource-git.ts';
 import {validResourceUrl, type ManagedResource, type ResourceBranches, type ResourceChangeStatus, type ResourceChanges, type ResourceGitSync, type ResourcesSnapshot, type ResourceSyncAction} from './resource-contract.ts';
 import type {ResourceCloneManager} from './resource-clones.ts';
+import type {PickSource} from './api-types.ts';
 import {isProjectRootResource, managedResources} from './resource-scope.ts';
 
 interface Repository {
@@ -127,8 +128,8 @@ export class ResourceSyncManager {
       ...(checked ? {ahead: local.ahead, behind: local.behind, checkedAt: record!.checkedAt} : {}),
       updatedAt: record?.updatedAt, error: record?.error};
   }
-  async snapshot(canPick: boolean): Promise<ResourcesSnapshot> {
-    const data = await this.clones.snapshot(canPick);
+  async snapshot(canPick: boolean, pickSource: PickSource | null = canPick ? 'native' : null): Promise<ResourcesSnapshot> {
+    const data = await this.clones.snapshot(canPick, pickSource);
     for (let offset = 0; offset < data.resources.length; offset += 4) await Promise.all(data.resources.slice(offset, offset + 4).map(async item => {
       if (item.type !== 'git' || item.status !== 'ready' || !item.path) return;
       let sync: ResourceGitSync;
