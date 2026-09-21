@@ -147,6 +147,6 @@ test('atomic writes replace files and exclusive writes preserve an existing targ
     assert.equal(readFileSync(path, 'utf8'), 'first\n');
     atomicWriteFile(path, 'third\n', 0o600);
     assert.equal(readFileSync(path, 'utf8'), 'third\n');
-    assert.equal(statSync(path).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(statSync(path).mode & 0o777, 0o600);
   } finally {f.cleanup();}
 });

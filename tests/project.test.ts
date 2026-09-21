@@ -116,7 +116,7 @@ test('memory edits atomically replace only the configured file and preserve its 
     const updated = updateProjectMemory(f.manifest, 'guide', '# Updated\n\n- one\n');
     assert.equal(updated.memory[0]?.content, '# Updated\n\n- one\n');
     assert.equal(readFileSync(path, 'utf8'), '# Updated\n\n- one\n');
-    assert.equal(statSync(path).mode & 0o777, 0o640);
+    if (process.platform !== 'win32') assert.equal(statSync(path).mode & 0o777, 0o640);
     assert.throws(() => updateProjectMemory(f.manifest, 'missing', 'nope'), /Unknown project memory/);
     assert.equal(readFileSync(path, 'utf8'), '# Updated\n\n- one\n');
   } finally {f.cleanup();}

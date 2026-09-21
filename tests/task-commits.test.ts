@@ -55,7 +55,7 @@ for (const cancelled of [false, true]) test(`commit fetch authentication ${cance
   } finally {abort.abort(); auth.dispose(); await result; await reader.dispose(); await f.cleanup();}
 });
 
-test('commit previews read immutable history, exact edits, renamed paths, binaries, large files and mode changes', async () => {
+test('commit previews read immutable history, exact edits, renamed paths, binaries, large files and mode changes', {skip: process.platform === 'win32'}, async () => {
   const f = await fixture();
   try {
     const strange = '名称\twith space\nfile.txt';

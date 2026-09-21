@@ -21,7 +21,7 @@ test('resources preserve YAML comments and keep external paths local across add,
     assert.match(readFileSync(f.manifest, 'utf8'), /# portable project|# resource list/);
     const local = join(f.root, '.agent-project', 'local.yaml');
     assert.equal(parse(readFileSync(local, 'utf8')).resources[item.id], f.outside);
-    assert.equal(statSync(local).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(statSync(local).mode & 0o777, 0o600);
     assert.match(readFileSync(join(f.root, '.agent-project/.gitignore'), 'utf8'), /\/local.yaml/);
     await f.store.mutate({action: 'edit', id: item.id, name: 'Renamed', expectedRevision: f.store.revision()});
     assert.equal(f.store.read().resources.find(item => item.name === 'Renamed')!.id, item.id);

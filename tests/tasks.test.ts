@@ -39,7 +39,7 @@ test('records survive reload; shared files omit local Session identities and rec
     const shared = readFileSync(join(f.root, 'tasks', created.directory, 'task.md'), 'utf8');
     assert.doesNotMatch(shared, /second-session|sessionId|operationId/);
     assert.equal(f.store.sources(created.id).decision?.sessionId, 'second-session');
-    assert.equal(statSync(f.store.layout.taskSources).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(statSync(f.store.layout.taskSources).mode & 0o777, 0o600);
   } finally {f.cleanup();}
 });
 

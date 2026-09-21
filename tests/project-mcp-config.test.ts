@@ -45,7 +45,7 @@ test('project mcp config merges private overrides but exposes only presence flag
     assert.deepEqual(f.store.resolved('remote-search'), {
       ...http, headers: {Authorization: 'Bearer http-secret'},
     });
-    assert.equal(statSync(join(f.root, 'mcp/local.yaml')).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(statSync(join(f.root, 'mcp/local.yaml')).mode & 0o777, 0o600);
   } finally {f.cleanup();}
 });
 
