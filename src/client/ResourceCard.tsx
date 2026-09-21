@@ -1,4 +1,4 @@
-import {useId, useRef, useState, type ReactNode} from 'react';
+import {useEffect, useId, useRef, useState, type ReactNode} from 'react';
 import {Button, IconBranchOutline16, IconCheckOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, IconRightUpOutline16, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ManagedResource, ResourceBranches, ResourceChangeStatus, ResourceChanges} from '../resource-contract.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
@@ -57,6 +57,15 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
     opener.current = target; setViewing(true);
     void syncActions?.loadBranches().then(setBranches);
   };
+  // A switch runs in the Host, so follow the branch the resource reports back. Without this the
+  // picker keeps naming the branch the dialog was opened with while HEAD has already moved.
+  const followedBranch = useRef<string>();
+  useEffect(() => {
+    const reported = item.git?.branch;
+    if (!viewing || !branches || !reported || branches.current === reported || followedBranch.current === reported) return;
+    followedBranch.current = reported;
+    void syncActions?.loadBranches().then(setBranches);
+  }, [viewing, branches, item.git?.branch]);
   const openCommit = (target?: HTMLButtonElement) => {
     if (target) opener.current = target;
     setCommitMessage(''); setCommitError(undefined); setCommitting(true); setChanges(undefined);
