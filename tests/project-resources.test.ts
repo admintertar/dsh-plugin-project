@@ -123,6 +123,25 @@ test('Git directory inspection recognizes roots and worktrees, filters credentia
   } finally {f.cleanup();}
 });
 
+test('a local Git working tree is accepted as a Git resource before it has an origin remote', async () => {
+  const f = resourceFixture();
+  try {
+    gitFixture(f.outside);
+    const inspection = await f.store.inspect(f.outside);
+    assert.equal(inspection.git?.branch, 'main'); assert.equal(inspection.git?.url, undefined);
+    // A claimed URL must still match the detected origin, so an unlinked repository cannot inherit a stale one.
+    await assert.rejects(f.store.mutate({action: 'addLocal', type: 'git', url: 'https://example.com/source.git', name: 'Mismatch',
+      path: f.outside, expectedRevision: f.store.revision()}), /resource-git-invalid/);
+    const plain = join(f.base, 'plain'); mkdirSync(plain);
+    await assert.rejects(f.store.mutate({action: 'addLocal', type: 'git', name: 'Not a repository',
+      path: plain, expectedRevision: f.store.revision()}), /resource-git-invalid/);
+    await f.store.mutate({action: 'addLocal', type: 'git', name: 'Local repository', path: f.outside, expectedRevision: f.store.revision()});
+    const item = f.store.read().resources[1]!;
+    assert.equal(item.type, 'git'); assert.equal(item.url, undefined); assert.equal(item.path, f.outside);
+    assert.doesNotMatch(readFileSync(f.manifest, 'utf8'), /url:/);
+  } finally {f.cleanup();}
+});
+
 test('Git URL validation rejects credentials, option/helper injection and local transport', () => {
   for (const url of ['https://github.com/example/repo.git', 'ssh://git@example.com:2222/repo', 'git@example.com:group/repo.git']) assert.equal(validResourceUrl(url), true, url);
   for (const url of ['--upload-pack=x', 'ext::touch /tmp/nope', '/tmp/repo', 'file:///tmp/repo', 'http://example.com/repo', 'git://example.com/repo',

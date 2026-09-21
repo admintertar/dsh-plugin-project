@@ -104,12 +104,15 @@ export class ProjectResourceStore {
     if (action.action === 'addLocal') {
       const name = nameFor(action.name);
       const inspected = await this.inspect(action.path);
-      if (action.type === 'git' && (!inspected.git?.url || !action.url || !validResourceUrl(action.url) || inspected.git.url !== action.url)) resourceFailure('resource-git-invalid', 422);
+      // A Git working tree is a Git resource even before it has an origin remote. A URL the caller
+      // claims must still match the detected origin, so a stale form cannot bind the wrong remote.
+      if (action.type === 'git' && (!inspected.git
+        || (action.url !== undefined && (!validResourceUrl(action.url) || inspected.git.url !== action.url)))) resourceFailure('resource-git-invalid', 422);
       const location = this.location(action.path);
       const id = resourceId(name);
       this.save(action.expectedRevision, (resources, bindings) => {
         resources.push({id, name, type: action.type, ...(location.shared === undefined ? {} : {path: location.shared}),
-          ...(action.type === 'git' ? {url: action.url} : {})});
+          ...(action.type === 'git' && inspected.git?.url ? {url: inspected.git.url} : {})});
         if (location.shared === undefined) bindings[id] = location.path;
       });
     } else if (action.action === 'bind') {

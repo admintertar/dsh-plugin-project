@@ -1,5 +1,10 @@
-import type {ManagedResource, ResourceGitSync} from '../resource-contract.ts';
+import type {ManagedResource, ResourceGitSync, ResourceInspection} from '../resource-contract.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
+
+/** The Host owns detection: any working-tree root is a Git resource, even before it has an origin remote. */
+export function detectedResourceType(inspection: ResourceInspection | undefined): 'git' | 'local' {
+  return inspection?.git ? 'git' : 'local';
+}
 
 const errorKeys = {
   'resource-config-invalid': 'resourceErrorConfig', 'resource-recovery-conflict': 'resourceErrorRecovery', 'revision-conflict': 'resourceErrorRevision',

@@ -8,7 +8,7 @@ import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectScrollableModal, ProjectSelect, ProjectSettingRow, ProjectSettingsCard} from './ProjectControls.tsx';
 import type {ResourceController} from './resource-controller.ts';
 import {ResourceCard} from './ResourceCard.tsx';
-import {resourceErrorText as errorText} from './resource-ui.ts';
+import {detectedResourceType, resourceErrorText as errorText} from './resource-ui.ts';
 import {managedResources} from '../resource-scope.ts';
 import type {PickDirectory} from './pick-directory.ts';
 const operationLabels = {cloning: 'resourceCloning', cancelling: 'resourceCancelling', cancelled: 'resourceCancelled', failed: 'resourceCloneFailed',
@@ -70,7 +70,8 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
       const inspection = await controller.inspect(path);
       if (sequence.current !== current) return;
       setDraft(previous => previous && {...previous, inspection, originChoice: '',
-        ...(previous.mode === 'add' && !inspection.git?.url ? {type: 'local' as const} : {}),
+        // The picked directory decides the type; the Host already reports whether it is a Git working tree.
+        ...(previous.mode === 'add' ? {type: detectedResourceType(inspection)} : {}),
         ...(previous.mode === 'add' && !previous.named ? {name: inspection.name} : {})});
     } catch (error) {if (sequence.current === current) setFormError(error instanceof Error ? error.message : 'operation-failed');}
     finally {if (sequence.current === current) setSelecting(false);}
@@ -103,6 +104,7 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
   };
   const originMismatch = draft?.mode === 'bind' && draft.item?.type === 'git' && draft.inspection !== undefined
     && draft.inspection.git?.url !== draft.item.url;
+  const duplicateInspection = Boolean(draft?.inspection?.duplicateId && draft.inspection.duplicateId !== draft.item?.id);
   const cloneForm = draft?.mode === 'clone' || (draft?.mode === 'add' && draft.source === 'git');
   const directoryForm = draft?.mode === 'bind' || (draft?.mode === 'add' && draft.source === 'local');
   const draftError = formError ?? state.error;
@@ -174,13 +176,17 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
             {draft.mode === 'bind' && <ProjectSettingRow title={t('resourceOldDirectory')} layout="stacked"><code>{draft.item?.path ?? t('resourceUnbound')}</code></ProjectSettingRow>}
             <ProjectSettingRow title={t(draft.mode === 'bind' ? 'resourceNewDirectory' : 'resourceDirectory')}
               description={t(draft.mode === 'bind' ? 'resourceBindBody' : 'resourceReferenceBody')} layout="stacked">
-              <div className="project-resource-directory"><code>{draft.inspection?.path ?? t('resourceUnbound')}</code>
-                <Button variant="outline" disabled={selecting || !state.data?.canPick} onClick={() => void pick()}>{t(selecting ? 'loading' : 'resourceChoose')}</Button></div>
-              {!state.data?.canPick && <p className="project-meta">{t('nativePickerUnavailable')}</p>}
-              {draft.inspection?.external && <p className="project-meta">{t('resourceExternal')}</p>}
-              {draft.inspection?.duplicateId && draft.inspection.duplicateId !== draft.item?.id && <p className="project-error">{t('resourceErrorDuplicate')}</p>}
+              <div className="project-resource-directory-field">
+                <div className="project-resource-directory"><code>{draft.inspection?.path ?? t('resourceUnbound')}</code>
+                  <Button variant="outline" disabled={selecting || !state.data?.canPick} onClick={() => void pick()}>{t(selecting ? 'loading' : 'resourceChoose')}</Button></div>
+                {(!state.data?.canPick || draft.inspection?.external || duplicateInspection) && <div className="project-resource-notes">
+                  {!state.data?.canPick && <p className="project-meta">{t('nativePickerUnavailable')}</p>}
+                  {draft.inspection?.external && <p className="project-meta">{t('resourceExternal')}</p>}
+                  {duplicateInspection && <p className="project-error" role="alert">{t('resourceErrorDuplicate')}</p>}
+                </div>}
+              </div>
             </ProjectSettingRow>
-            {draft.mode === 'add' && draft.inspection?.git?.url && <ProjectSettingRow title={t('resourceKind')} description={t('resourceDetected')}><ProjectSelect label={t('resourceKind')} value={draft.type}
+            {draft.mode === 'add' && draft.inspection?.git && <ProjectSettingRow title={t('resourceKind')} description={t('resourceDetected')}><ProjectSelect label={t('resourceKind')} value={draft.type}
               options={[{value: 'local', label: t('resourceLocal')}, {value: 'git', label: t('resourceGit')}]}
               onChange={type => update({type})} /></ProjectSettingRow>}
             {originMismatch && <ProjectSettingRow title={t('resourceOriginChoice')} description={t('resourceOriginBody')}><ProjectSelect label={t('resourceOriginChoice')} value={draft.originChoice}

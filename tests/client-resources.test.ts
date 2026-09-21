@@ -1,9 +1,18 @@
 import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
 import {ResourceController} from '../src/client/resource-controller.ts';
+import {detectedResourceType} from '../src/client/resource-ui.ts';
 
 const empty = {revision: 'a'.repeat(64), version: 'initial', resources: [], operations: [], canPick: true, pickSource: 'native', canClone: true};
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), {status});
+
+test('a picked Git working tree defaults to the Git resource type, with or without an origin', () => {
+  assert.equal(detectedResourceType({path: '/tmp/repo', name: 'repo', external: true, git: {branch: 'main'}}), 'git');
+  assert.equal(detectedResourceType({path: '/tmp/repo', name: 'repo', external: true,
+    git: {url: 'https://example.com/repo.git', branch: 'main'}}), 'git');
+  assert.equal(detectedResourceType({path: '/tmp/folder', name: 'folder', external: true}), 'local');
+  assert.equal(detectedResourceType(undefined), 'local');
+});
 
 test('resource controller retains a successful snapshot on error and ignores late GETs after mutation', async () => {
   let resolveOld!: (value: Response) => void; let fail = false; let calls = 0; let changed = 0;
