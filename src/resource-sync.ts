@@ -44,7 +44,7 @@ function parseChanges(output: string): {path: string; status: ResourceChangeStat
 
 /** Local inspection only. Track the actual current branch; manifest.branch remains a clone option. */
 async function inspect(path: string, url: string | undefined, run: GitRun): Promise<Repository> {
-  if (realpathSync(await run(['rev-parse', '--show-toplevel'], path)) !== realpathSync(path)) resourceFailure('resource-git-invalid');
+  if (realpathSync.native(await run(['rev-parse', '--show-toplevel'], path)) !== realpathSync.native(path)) resourceFailure('resource-git-invalid');
   const output = await run(['-c', 'core.fsmonitor=false', 'status', '--porcelain=v2', '--branch', '--untracked-files=normal', '--ignore-submodules=none'], path);
   const lines = output.split('\n');
   const value = (name: string) => lines.find(line => line.startsWith(`# branch.${name} `))?.slice(name.length + 10);

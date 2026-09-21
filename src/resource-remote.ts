@@ -7,7 +7,7 @@ import {validateResourceBranch, type GitRun} from './resource-git.ts';
 export async function associateResourceRemote(path: string, url: string, branch: string | undefined, run: GitRun,
   current: () => void, save: () => void): Promise<void> {
   if (!validResourceUrl(url)) resourceFailure('resource-url-invalid', 422);
-  if (realpathSync(await run(['rev-parse', '--show-toplevel'], path)) !== realpathSync(path)) resourceFailure('resource-git-invalid');
+  if (realpathSync.native(await run(['rev-parse', '--show-toplevel'], path)) !== realpathSync.native(path)) resourceFailure('resource-git-invalid');
   const localBranch = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], path).catch(() => resourceFailure('git-detached'));
   const remoteBranch = branch || localBranch;
   await validateResourceBranch(remoteBranch, path, run);

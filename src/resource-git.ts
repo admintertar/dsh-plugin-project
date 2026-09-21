@@ -86,7 +86,7 @@ const executeGit = (args: readonly string[], cwd: string, options: GitRunOptions
 export async function inspectResourceGit(path: string, run: GitRun = runResourceGit): Promise<{url?: string; branch?: string} | undefined> {
   try {
     const root = await run(['rev-parse', '--show-toplevel'], path);
-    if (realpathSync(root) !== realpathSync(path)) return undefined;
+    if (realpathSync.native(root) !== realpathSync.native(path)) return undefined;
     const [url, branch] = await Promise.all([
       run(['remote', 'get-url', 'origin'], path).catch(() => ''),
       run(['symbolic-ref', '--quiet', '--short', 'HEAD'], path)

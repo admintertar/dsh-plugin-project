@@ -102,7 +102,7 @@ export class TaskCommitReader {
       current(); return result;
     };
     const assertOrigin = async () => {
-      if (realpathSync(await run(['rev-parse', '--show-toplevel'])) !== target.path) fail('task-commit-resource-unavailable');
+      if (realpathSync.native(await run(['rev-parse', '--show-toplevel'])) !== realpathSync.native(target.path)) fail('task-commit-resource-unavailable');
       if (repositoryIdentity(await run(['remote', 'get-url', 'origin'])) !== target.identity) fail('task-commit-origin-mismatch');
     };
     await assertOrigin();
