@@ -10,5 +10,5 @@
 - Memory lives under root `memory/` and loads only declared files. Share `.agent-project/` metadata but ignore local bindings, provenance and recovery journals precisely.
 - Reuse `ProjectControls.tsx` for controls. Settings use label/description left, controls right; long editors use full width. Long modals use one body scroll region with fixed title/actions. Preserve stable scrollbar gutters and narrow-window behavior.
 - Verify English/Chinese text, theme states and keyboard behavior when changing UI. Tests/build do not replace native visual acceptance.
-- Preserve existing work. Run `npm run check` for source changes; never rewrite a running Profile, publish a repository, change visibility or push to an upstream without an explicit request.
+- Preserve existing work. Run `yarn run check` for source changes; never rewrite a running Profile, publish a repository, change visibility or push to an upstream without an explicit request.
 - Original code has no open-source license grant. Respect `LICENSE` and `THIRD_PARTY_NOTICES.md`; do not silently relicense it.

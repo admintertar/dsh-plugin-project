@@ -23,22 +23,22 @@ This independently maintained project is not an official DeepSeek or Anywhere La
 
 ## Local development
 
-Requires Node.js `^22.19.0 || >=24.0.0`, npm, Git and tar. Run from this repository:
+Requires Node.js `^22.19.0 || >=24.0.0`, Corepack, Git and tar. Run from this repository:
 
 ```sh
-npm ci
+yarn install --immutable
 git clone --filter=blob:none --no-checkout https://github.com/anywhere-labs/dsh-desktop.git ../dsh-desktop-source
-npm run setup -- --desktop ../dsh-desktop-source
-npm run check
-npm start
+yarn run setup -- --desktop ../dsh-desktop-source
+yarn run check
+yarn start
 ```
 
-Setup reads the pinned official Git commit, verifies stable metadata and runtime archive SHA-256 checksums, and installs isolated dependencies under `.dev/`. It does not build or launch the official desktop app or use uncommitted source changes. Run setup after `npm ci` to obtain the complete matching official development types.
+Setup reads the pinned official Git commit, verifies stable metadata and runtime archive SHA-256 checksums, and installs isolated dependencies under `.dev/`. It does not build or launch the official desktop app or use uncommitted source changes. Run setup after `yarn install --immutable` to obtain the complete matching official development types.
 
 Start defaults to the fictional `examples/demo-web` project and prints the local Web development URL. To select a project and port:
 
 ```sh
-npm start -- /path/to/example/example.agent-project 43191
+yarn start -- /path/to/example/example.agent-project 43191
 ```
 
 Configure a model provider through the official settings UI when needed. Tests need no model credentials and make no model calls. Development profiles and dependencies stay in ignored `.dev/`; keep personal configuration out of examples.
@@ -65,8 +65,8 @@ See [project layout](docs/project-layout.md). Both [examples](examples/) are fic
 The plugin supports independent Web development. The companion `dsh-project-desktop` provides the native application and builds a pinned plugin commit. Plugin edits do not automatically replace running project windows.
 
 ```sh
-npm run setup -- --shell ../dsh-project-desktop
-npm run test:compatibility -- ../dsh-project-desktop
+yarn run setup -- --shell ../dsh-project-desktop
+yarn run test:compatibility -- ../dsh-project-desktop
 ```
 
 See [development notes](docs/development.md) for checks, boundaries and platform limitations.

@@ -96,4 +96,4 @@ English summary: both repositories must reuse pinned official components, behavi
 - 表单取消、草稿保留、重复提交阻止；异步操作失败后恢复可操作状态。
 - 涉及 Shell 原生功能时，在真实 Electron 窗口核对官方界面的确认、取消与实际行为；共享主题改动还需多窗口验收。
 
-源码变更执行 `npm run check`，原生与集成检查按 [开发说明](development.md) 及 Shell 的检查入口选择。测试通过或构建成功不能替代真实界面的视觉与交互验收；没有运行的检查必须如实注明。仅文档改动检查内容、链接和差异即可。
+源码变更执行 `yarn run check`，原生与集成检查按 [开发说明](development.md) 及 Shell 的检查入口选择。测试通过或构建成功不能替代真实界面的视觉与交互验收；没有运行的检查必须如实注明。仅文档改动检查内容、链接和差异即可。
