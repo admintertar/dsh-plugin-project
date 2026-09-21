@@ -1,5 +1,5 @@
 import {useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
-import {Button, IconEditOutline16, IconFolderOpenOutline16, IconTrashOutline16,
+import {Button, IconEditOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconTrashOutline16,
   IconWarningOutline16, Input, Modal, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ResourceView} from '../project.ts';
 import type {ResourceInspection, ManagedResource} from '../resource-contract.ts';
@@ -128,8 +128,8 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
           {item.git?.diagnostic && <span className="project-mcp-error-anchor"><IconAction label={errorText(item.git.diagnostic, t)} icon={<IconWarningOutline16 />}
             action={event => {opener.current = event.currentTarget; setDetails({name: item.name, error: item.git!.diagnostic!});}} /></span>}
           {item.type === 'git' && item.status === 'ready' && (!item.url || ['unlinked', 'no-upstream'].includes(item.git?.sync?.status ?? '')) &&
-            <Button size="sm" disabled={locked || !state.data?.canClone} onClick={event => open(event, 'associate', item)}>
-              {t(item.git?.sync?.status === 'no-upstream' ? 'resourceSetTracking' : 'resourceAssociate')}</Button>}
+            <IconAction label={`${t(item.git?.sync?.status === 'no-upstream' ? 'resourceSetTracking' : 'resourceAssociate')}: ${item.name}`}
+              icon={<IconLinkOutline16 />} disabled={locked || !state.data?.canClone} action={event => open(event, 'associate', item)} />}
           {item.type === 'git' && item.url && item.status !== 'ready' && !item.external && <Button size="sm" disabled={locked || cloneActive || !state.data?.canClone}
             onClick={event => open(event, 'clone', item)}>{t('resourceClone')}</Button>}
           <IconAction label={`${t('bindResource')}: ${item.name}`} icon={<IconFolderOpenOutline16 />} disabled={locked || !state.data?.canPick} action={event => open(event, 'bind', item)} />
