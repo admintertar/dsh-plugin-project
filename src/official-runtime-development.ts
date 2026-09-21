@@ -19,7 +19,10 @@ export function exportOfficialRuntime(repository: string, supplied: string) {
     execFileSync('git', ['-C', desktopSource, 'archive', '--format=tar', `--output=${archive}`, commit, '--',
       'dsh-plugin-desktop/package.json', 'upstream.json', `vendor/dsh-runtime/${pin.harness.stable.version}`,
     ]);
-    execFileSync('tar', ['-xf', archive, '-C', snapshot]);
+    // GNU tar, which Git Bash puts ahead of bsdtar on the Windows runner, reads a
+    // colon inside a -f/-C value as a remote host, so extract from the snapshot
+    // directory using a relative name instead of passing absolute Windows paths.
+    execFileSync('tar', ['-xf', 'runtime.tar'], {cwd: snapshot});
     unlinkSync(archive);
     return {desktopSource, snapshot, ...verifyDesktopRuntime(repository, snapshot, 'stable')};
   } catch (error) {
