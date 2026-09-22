@@ -112,8 +112,20 @@ export function ProjectChangesPanel({controller, root, t}: {controller: ProjectC
   const [details, setDetails] = useState(false);
   const [branches, setBranches] = useState<ResourceBranches>();
   const translate = t as unknown as Translate;
-  // A new snapshot is a new set of assets: re-select the project assets for the next review.
-  useEffect(() => {setSelection(new Set(entries.filter(entry => entry.kind !== 'file').map(entry => entry.id)));}, [entries]);
+  // A new snapshot must not throw away the user's choices: keep the selection of assets that still
+  // exist, and default-select only the assets that appeared since the previous snapshot. Without
+  // this, any worktree change (a Skill index rewrite, a file the Agent writes) clears the ticks.
+  const knownAssets = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const ids = new Set(entries.map(entry => entry.id));
+    const appeared = entries.filter(entry => !knownAssets.current.has(entry.id) && entry.kind !== 'file');
+    knownAssets.current = ids;
+    setSelection(current => {
+      const next = new Set([...current].filter(id => ids.has(id)));
+      for (const entry of appeared) next.add(entry.id);
+      return next;
+    });
+  }, [entries]);
   useEffect(() => {if (details) void controller.branches().then(setBranches);}, [details, controller]);
   // Match the resource cards: check the remote once when the overview opens, then only on demand.
   const autoChecked = useRef(false);
