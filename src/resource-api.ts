@@ -8,6 +8,7 @@ import {ProjectHttpError, readJsonBody, requireAuthenticatedRequest, sendJson, s
 import type {ProjectResourceStore} from './project-resources.ts';
 import type {ResourceCloneManager} from './resource-clones.ts';
 import {ResourceSyncManager, type ProjectStagingResolver} from './resource-sync.ts';
+import type {RepositoryMergeResult} from './resource-contract.ts';
 import {gitKeyChoices} from './resource-auth.ts';
 import {pickSource} from './directory-pick.ts';
 import {mapProjectChanges, parseMcpServers, type McpDeclarationFile, type ProjectChangeContext, type ProjectChangesSnapshot} from './project-changes.ts';
@@ -129,11 +130,15 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
     // Wait for Git before answering: the reply carries the resulting state, so one click is enough
     // and the caller never has to poll or guess whether the action took effect.
     let snapshot;
+    let merge: RepositoryMergeResult | undefined;
     await queue(async () => {
-      await sync.startProjectRoot(action.action, action.expectedRevision, true, input);
+      merge = await sync.startProjectRoot(action.action, action.expectedRevision, true, input);
       snapshot = await sync.projectRootStatus();
     });
-    return snapshot ?? sync.projectRootStatus();
+    const result = snapshot ?? await sync.projectRootStatus();
+    // A merge that could not be completed is a result, not a failure: the branches are unchanged
+    // and the caller decides what happens to the conflicting files.
+    return merge === undefined ? result : {...result, merge};
   });
   registerRepository('/branches', ['GET'], async () => sync.projectRootBranches());
   /** Asset-level review of the project root: Git reports files, the overview reviews project assets. */

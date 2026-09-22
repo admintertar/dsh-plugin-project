@@ -41,7 +41,7 @@ test('the changes controller names the repository action it is waiting for', asy
   await new Promise(resolve => setTimeout(resolve, 5));
   assert.equal(controller.getSnapshot().action, 'check');
   gate.resolve();
-  assert.equal(await pending, true);
+  assert.deepEqual(await pending, {accepted: true});
   assert.deepEqual(actions, ['check']);
   assert.equal(controller.getSnapshot().action, undefined);
   controller.dispose();
@@ -59,7 +59,20 @@ test('the changes controller sends a repository update, so new remote commits ca
   await new Promise(resolve => setTimeout(resolve, 5));
   assert.equal(controller.getSnapshot().action, 'update');
   gate.resolve();
-  assert.equal(await updating, true);
+  assert.deepEqual(await updating, {accepted: true});
   assert.deepEqual(bodies, [{action: 'update', expectedRevision: snapshot.revision}]);
+  controller.dispose();
+});
+
+test('a repository update reports a merge it could not complete, with the conflicting files', async () => {
+  const reply = {revision: snapshot.revision, available: true, entries: [],
+    merge: {status: 'conflict', files: ['tasks/Alpha/task.md', 'skills/index.yaml']}};
+  const controller = new ProjectChangesController(async (_input, init) => new Response(
+    JSON.stringify(init?.method === 'POST' ? reply : snapshot), {status: 200, headers: {'content-type': 'application/json'}}));
+  await controller.refresh();
+  const result = await controller.sync('update', snapshot.revision);
+  assert.deepEqual(result?.merge, {status: 'conflict', files: ['tasks/Alpha/task.md', 'skills/index.yaml']});
+  // A conflict is an outcome, not a page error: the panel must not report a failed action.
+  assert.equal(controller.getSnapshot().error, undefined);
   controller.dispose();
 });

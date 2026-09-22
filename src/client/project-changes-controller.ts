@@ -1,5 +1,5 @@
 import {resourceErrorCodes, type ResourceBranches, type ResourceSyncAction} from '../resource-contract.ts';
-import type {ProjectChangeKind, ProjectChangesSnapshot} from '../project-changes.ts';
+import type {ProjectChangeActionResult, ProjectChangeKind, ProjectChangesSnapshot} from '../project-changes.ts';
 
 interface ChangesState {data?: ProjectChangesSnapshot; error?: string; commitError?: string; loading: boolean; pending: boolean;
   /** Which operation is in flight, so each control can say what it is doing. */
@@ -63,19 +63,19 @@ export class ProjectChangesController {
   }
   /**
    * Branch switching, remote checks and pushes. `silent` marks the automatic check that runs when
-   * the overview opens: it must never lock the toolbar or raise a page-level error.
+   * the overview opens: it must never lock the toolbar or raise a page-level error. The reply is
+   * returned, because an update that had to merge reports its outcome there.
    */
-  async sync(action: RepositorySyncAction, expectedRevision: string, branch?: string, silent = false): Promise<boolean> {
-    if (this.disposed || this.state.pending) return false;
+  async sync(action: RepositorySyncAction, expectedRevision: string, branch?: string, silent = false): Promise<ProjectChangeActionResult | undefined> {
+    if (this.disposed || this.state.pending) return undefined;
     this.current?.abort(); this.current = undefined;
     const controller = new AbortController(); this.requests.add(controller);
     if (!silent) this.update({pending: true, action, loading: false, error: undefined});
     try {
-      await this.send('', {action, expectedRevision, ...(branch === undefined ? {} : {branch})}, controller.signal);
-      return !this.disposed;
+      return await this.send<ProjectChangeActionResult>('', {action, expectedRevision, ...(branch === undefined ? {} : {branch})}, controller.signal);
     } catch (error) {
       if (!controller.signal.aborted && !silent) this.update({error: this.code(error)});
-      return false;
+      return undefined;
     } finally {
       this.requests.delete(controller);
       if (!silent) this.update({pending: false, action: undefined});
@@ -101,11 +101,12 @@ export class ProjectChangesController {
     if (!response.ok) throw this.failure(data);
     return data as T;
   }
-  private async send(path: string, body: unknown, signal: AbortSignal): Promise<void> {
+  private async send<T>(path: string, body: unknown, signal: AbortSignal): Promise<T> {
     const response = await this.request(`/api/project/repository${path}`, {method: 'POST',
       headers: {'content-type': 'application/json'}, body: JSON.stringify(body), signal});
     const data = await response.json();
     if (!response.ok) throw this.failure(data);
+    return data as T;
   }
   dispose(): void {this.disposed = true; this.requests.forEach(request => request.abort()); this.listeners.clear();}
 }

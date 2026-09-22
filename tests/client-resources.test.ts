@@ -21,7 +21,8 @@ test('a repository is only updatable while it is simply behind and nothing else 
   assert.equal(canUpdateResource({status: 'behind', behind: 3, inProgress: true}), false);
   assert.equal(canUpdateResource({status: 'behind', behind: 3, phase: 'checking'}), false);
   assert.equal(canUpdateResource({status: 'behind', behind: 3, error: 'git-sync-failed'}), false);
-  assert.equal(canUpdateResource({status: 'diverged', ahead: 1, behind: 3}), false);
+  assert.equal(canUpdateResource({status: 'diverged', ahead: 1, behind: 3}), true);
+  assert.equal(canUpdateResource({status: 'diverged', ahead: 1, behind: 3, dirty: true}), false);
   assert.equal(canUpdateResource({status: 'current', behind: 0}), false);
   assert.equal(canUpdateResource(undefined), false);
 });

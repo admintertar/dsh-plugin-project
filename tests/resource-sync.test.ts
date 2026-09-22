@@ -143,15 +143,49 @@ for (const kind of ['modified', 'staged', 'untracked'] as const) test(`update pr
   } finally {await f.cleanup();}
 });
 
-test('ahead and diverged histories are distinguished; update never merges or resets divergent commits', async () => {
+test('a diverged branch is merged, keeping both the local and the remote commits', async () => {
   const f = await fixture();
   try {
     writeFileSync(join(f.path, 'local.txt'), 'local'); f.git('add', '.'); f.commitLocal();
     const local = f.git('rev-parse', 'HEAD');
     assert.equal((await f.act('check')).status, 'ahead');
-    f.advance(); const checked = await f.act('check');
+    const remote = f.advance(); const checked = await f.act('check');
     assert.equal(checked.status, 'diverged'); assert.equal(checked.ahead, 1); assert.equal(checked.behind, 1);
-    assert.equal((await f.act('update')).error, 'git-history-diverged'); assert.equal(f.git('rev-parse', 'HEAD'), local);
+    // The caller learns what the update did, so a conflict can be handed to a conversation instead.
+    assert.deepEqual(await f.sync.start(f.item.id, 'update', f.store.revision()), {status: 'merged', files: []});
+    const merged = await f.act('check');
+    assert.equal(merged.error, undefined); assert.equal(merged.status, 'ahead');
+    // The merge commit and the local commit are both ahead of the remote now.
+    assert.equal(merged.ahead, 2); assert.equal(merged.behind, 0);
+    // A merge commit sits on top: the first parent is the local commit, the second the fetched one.
+    assert.equal(f.git('rev-parse', 'HEAD^1'), local);
+    assert.equal(f.git('rev-parse', 'HEAD^2'), remote);
+    assert.equal(readFileSync(join(f.path, 'local.txt'), 'utf8'), 'local');
+    assert.equal(readFileSync(join(f.path, 'README.md'), 'utf8'), `# Update 1\n`);
+    assert.equal(f.git('status', '--porcelain'), '');
+  } finally {await f.cleanup();}
+});
+
+test('a conflicting merge is reported and rolled back completely, never leaving a half-merged tree', async () => {
+  const f = await fixture();
+  try {
+    // Both sides rewrite the same file, so no merge can resolve it automatically.
+    writeFileSync(join(f.path, 'README.md'), '# Local draft\n'); f.git('add', '.'); f.commitLocal();
+    const before = f.git('rev-parse', 'HEAD');
+    f.advance();
+    assert.equal((await f.act('check')).status, 'diverged');
+    assert.deepEqual(await f.sync.start(f.item.id, 'update', f.store.revision()), {status: 'conflict', files: ['README.md']});
+    // The worktree and the index are exactly what they were: no merge commit, no MERGE_HEAD, no conflict markers.
+    assert.equal(f.git('rev-parse', 'HEAD'), before);
+    assert.equal(existsSync(join(f.path, '.git/MERGE_HEAD')), false);
+    assert.equal(f.git('status', '--porcelain'), '');
+    assert.equal(readFileSync(join(f.path, 'README.md'), 'utf8'), '# Local draft\n');
+    const rolledBack = await f.act('check');
+    assert.equal(rolledBack.error, undefined); assert.equal(rolledBack.status, 'diverged');
+    // Resolving the conflict by hand — here by taking the remote text — lets a later update through.
+    writeFileSync(join(f.path, 'README.md'), `# Update 1\n`); f.git('add', '.'); f.commitLocal();
+    assert.deepEqual(await f.sync.start(f.item.id, 'update', f.store.revision()), {status: 'merged', files: []});
+    assert.equal((await f.act('check')).status, 'ahead');
   } finally {await f.cleanup();}
 });
 

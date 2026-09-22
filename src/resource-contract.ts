@@ -26,6 +26,15 @@ export interface ResourceGitSync {
   dirty?: boolean; inProgress?: boolean; ahead?: number; behind?: number; upstream?: string;
   checkedAt?: string; updatedAt?: string; error?: string;
 }
+/**
+ * What applying remote commits did to a branch that has commits of its own. A conflicting merge is
+ * rolled back before it is reported: `conflict` means the worktree is exactly as it was.
+ */
+export interface RepositoryMergeResult {
+  status: 'merged' | 'conflict';
+  /** The files both sides changed; empty unless the status is `conflict`. */
+  files: string[];
+}
 /** Actions that mutate or re-read one resource repository. `branches` is a separate read. */
 export type ResourceSyncAction = 'check' | 'update' | 'commit' | 'push' | 'switch';
 /**

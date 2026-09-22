@@ -73,8 +73,13 @@ export function canCheckResource(item: ManagedResource): boolean {
     && !['unlinked', 'unborn', 'no-upstream', 'detached'].includes(sync?.status ?? '')
     && !['git-no-remote', 'git-no-upstream', 'git-detached'].includes(sync?.error ?? '');
 }
+/**
+ * A branch behind its remote is fast-forwarded; a diverged one is merged. Neither is offered while
+ * the working tree is dirty or another Git operation is in progress.
+ */
 export function canUpdateResource(sync: ResourceGitSync | undefined): boolean {
-  return Boolean(sync?.status === 'behind' && !sync.phase && !sync.dirty && !sync.inProgress && !sync.error);
+  return Boolean((sync?.status === 'behind' || sync?.status === 'diverged')
+    && !sync.phase && !sync.dirty && !sync.inProgress && !sync.error);
 }
 /** Only local commits can be pushed, and never while the branch history is unresolved. */
 export function canPushResource(sync: ResourceGitSync | undefined): boolean {

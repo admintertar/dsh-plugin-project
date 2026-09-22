@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {ProjectHttpError} from './http.ts';
 import {resourceFailure} from './resource-files.ts';
 import {inspectResourceGit, ResourceGitError, type GitRun} from './resource-git.ts';
-import {validResourceUrl, type ManagedResource, type ProjectRepositoryView, type ResourceBranches, type ResourceChangeStatus, type ResourceChanges, type ResourceGitSync, type ResourcesSnapshot, type ResourceSyncAction} from './resource-contract.ts';
+import {validResourceUrl, type ManagedResource, type ProjectRepositoryView, type RepositoryMergeResult, type ResourceBranches, type ResourceChangeStatus, type ResourceChanges, type ResourceGitSync, type ResourcesSnapshot, type ResourceSyncAction} from './resource-contract.ts';
 import type {ResourceCloneManager} from './resource-clones.ts';
 import type {PickSource} from './api-types.ts';
 import {isProjectRootResource, managedResources} from './resource-scope.ts';
@@ -24,7 +24,7 @@ interface Repository {
   files: {path: string; status: ResourceChangeStatus}[];
 }
 interface RecordState {key: string; target?: string; checkedAt?: string; updatedAt?: string; error?: string; attemptedAt: number}
-interface ActiveSync {phase: NonNullable<ResourceGitSync['phase']>; controller: AbortController; done: Promise<void>; interactive: boolean}
+interface ActiveSync {phase: NonNullable<ResourceGitSync['phase']>; controller: AbortController; done: Promise<RepositoryMergeResult | undefined>; interactive: boolean}
 const failureCode = (error: unknown): string => error instanceof ProjectHttpError || error instanceof ResourceGitError ? error.code : 'git-sync-failed';
 const operationMarkers = ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply', 'sequencer', 'BISECT_START'];
 
@@ -224,7 +224,7 @@ export class ResourceSyncManager {
   private static readonly phases: Record<ResourceSyncAction, NonNullable<ResourceGitSync['phase']>> =
     {check: 'checking', update: 'updating', commit: 'committing', push: 'pushing', switch: 'switching'};
   /** `input` carries the commit message or the target branch, depending on the action. */
-  start(id: string, action: ResourceSyncAction, expectedRevision: string, interactive = true, input?: string): Promise<void> {
+  start(id: string, action: ResourceSyncAction, expectedRevision: string, interactive = true, input?: string): Promise<RepositoryMergeResult | undefined> {
     this.open(); this.clones.store.assertRevision(expectedRevision); this.clones.assertMutable(id);
     const existing = this.active.get(id);
     // A manual check may race the automatic check before the next snapshot arrives.
@@ -234,7 +234,7 @@ export class ResourceSyncManager {
     return this.begin(item, action, expectedRevision, interactive, input, key, () => this.resource(id));
   }
   /** The project repository shares every action and safety rule with a Git resource. */
-  async startProjectRoot(action: ResourceSyncAction, expectedRevision: string, interactive = true, input?: string): Promise<void> {
+  async startProjectRoot(action: ResourceSyncAction, expectedRevision: string, interactive = true, input?: string): Promise<RepositoryMergeResult | undefined> {
     this.open(); this.clones.store.assertRevision(expectedRevision);
     const item = await this.projectRootItem(true);
     if (item.status !== 'ready') resourceFailure('resource-unavailable');
@@ -248,15 +248,15 @@ export class ResourceSyncManager {
    * project repository by root, so the resource API keeps refusing the project root.
    */
   private begin(item: ManagedResource, action: ResourceSyncAction, expectedRevision: string, interactive: boolean,
-    input: string | undefined, key: string, resolve: () => ManagedResource): Promise<void> {
+    input: string | undefined, key: string, resolve: () => ManagedResource): Promise<RepositoryMergeResult | undefined> {
     // Switching branches is a local operation; every other action needs the configured remote.
     if (action !== 'switch' && !item.url) resourceFailure('git-no-remote');
     const controller = new AbortController();
-    const active: ActiveSync = {phase: ResourceSyncManager.phases[action], controller, done: Promise.resolve(), interactive};
+    const active: ActiveSync = {phase: ResourceSyncManager.phases[action], controller, done: Promise.resolve(undefined), interactive};
     this.active.set(item.id, active);
-    const operation = action === 'check' || action === 'update'
+    const operation: Promise<RepositoryMergeResult | undefined> = action === 'check' || action === 'update'
       ? this.execute(item, key, action, expectedRevision, controller.signal, () => active.interactive, resolve)
-      : this.mutate(item, key, action, input, expectedRevision, controller.signal, () => active.interactive, resolve);
+      : this.mutate(item, key, action, input, expectedRevision, controller.signal, () => active.interactive, resolve).then(() => undefined);
     active.done = operation.finally(() => {
       this.clearCache(item.id); this.clones.invalidate(); if (this.active.get(item.id) === active) this.active.delete(item.id);
     });
@@ -326,7 +326,7 @@ export class ResourceSyncManager {
     this.clones.store.assertRevision(expectedRevision);
     if (this.active.has(item.id)) resourceFailure('git-sync-busy');
     const controller = new AbortController();
-    const active: ActiveSync = {phase: 'committing', controller, done: Promise.resolve(), interactive: true};
+    const active: ActiveSync = {phase: 'committing', controller, done: Promise.resolve(undefined), interactive: true};
     this.active.set(item.id, active);
     const key = this.key(item);
     const current = () => {
@@ -509,7 +509,7 @@ export class ResourceSyncManager {
     return () => {release(); if (this.repositoryTails.get(key) === tail) this.repositoryTails.delete(key);};
   }
   private async execute(item: ManagedResource, key: string, action: 'check' | 'update', revision: string, signal: AbortSignal,
-    interactive: () => boolean, resolve: () => ManagedResource): Promise<void> {
+    interactive: () => boolean, resolve: () => ManagedResource): Promise<RepositoryMergeResult | undefined> {
     const previous = this.records.get(item.id);
     const record: RecordState = {key, attemptedAt: Date.now(), ...(previous?.key === key ? {checkedAt: previous.checkedAt, target: previous.target, updatedAt: previous.updatedAt} : {})};
     this.records.set(item.id, record);
@@ -519,6 +519,7 @@ export class ResourceSyncManager {
       if (this.key(resolve()) !== key) resourceFailure('git-state-changed');
     };
     let release: (() => void) | undefined;
+    let result: RepositoryMergeResult | undefined;
     try {
       release = await this.lockRepository(item, signal); current();
       const before = await this.local(item, true, signal); current();
@@ -536,24 +537,54 @@ export class ResourceSyncManager {
       const fetched = await this.local(item, true, signal); current();
       if (fetched.target !== before.target || fetched.head !== before.head) resourceFailure('git-state-changed');
       record.checkedAt = new Date().toISOString();
-      if (action === 'update') {
+      if (action === 'update' && fetched.behind) {
         this.updatable(fetched);
         if (!fetched.upstreamHead) resourceFailure('git-remote-branch-missing');
-        if (fetched.behind) {
-          // Pin the fetched commit. Never rebase, stash, force-reset, run hooks or overwrite ignored files.
-          await this.run(['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'submodule.recurse=false',
-            'merge', '--ff-only', '--no-edit', '--no-autostash', '--no-overwrite-ignore', fetched.upstreamHead], item.path!,
-          {signal, sync: true, timeoutMs: this.options.timeoutMs ?? 60_000});
-          current(); record.updatedAt = new Date().toISOString();
-        }
+        // A branch with local commits cannot fast-forward, so it is merged instead; a conflict is
+        // rolled back completely and handed to the caller rather than left half-merged.
+        result = fetched.ahead
+          ? await this.mergeUpstream(item, fetched.upstreamHead, signal)
+          : await this.fastForward(item, fetched.upstreamHead, signal);
+        current();
+        if (result.status === 'merged') record.updatedAt = new Date().toISOString();
       }
     } catch (error) {record.error = failureCode(error);}
     finally {release?.();}
+    return result;
+  }
+  /** Advance to the fetched commit. Only reachable when the branch has no local commits of its own. */
+  private async fastForward(item: ManagedResource, upstreamHead: string, signal: AbortSignal): Promise<RepositoryMergeResult> {
+    await this.run(['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'submodule.recurse=false',
+      'merge', '--ff-only', '--no-edit', '--no-autostash', '--no-overwrite-ignore', upstreamHead], item.path!,
+    {signal, sync: true, timeoutMs: this.options.timeoutMs ?? 60_000});
+    return {status: 'merged', files: []};
+  }
+  /**
+   * Merge the fetched commit into a branch that carries its own commits. Git refuses to continue
+   * with a conflicting file, and the merge is aborted before the conflict is reported: the worktree
+   * and the index return to exactly what they were, so a conflict never becomes a stuck state.
+   */
+  private async mergeUpstream(item: ManagedResource, upstreamHead: string, signal: AbortSignal): Promise<RepositoryMergeResult> {
+    const timeoutMs = this.options.timeoutMs ?? 60_000;
+    try {
+      await this.run(['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'submodule.recurse=false',
+        '-c', 'commit.gpgsign=false', 'merge', '--no-edit', '--no-autostash', '--no-overwrite-ignore', upstreamHead], item.path!,
+      {signal, sync: true, timeoutMs});
+      return {status: 'merged', files: []};
+    } catch (error) {
+      // Read the unmerged paths before aborting: they are the files both sides changed.
+      const conflicted = await this.local(item, true, signal).then(local => local.files).catch(() => []);
+      await this.run(['merge', '--abort'], item.path!, {signal, sync: true, timeoutMs}).catch(() => undefined);
+      const files = conflicted.filter(file => file.status === 'conflicted').map(file => file.path);
+      // Nothing was unmerged, so this is a real failure (identity, hooks, disk) and keeps its own code.
+      if (files.length === 0) throw error;
+      return {status: 'conflict', files};
+    }
   }
   private updatable(local: Repository): void {
     if (local.inProgress) resourceFailure('git-in-progress');
     if (local.dirty) resourceFailure('git-local-changes');
-    if (local.ahead && local.behind) resourceFailure('git-history-diverged');
+    // Diverged branches are merged rather than refused; the caller reports a conflict instead.
   }
   startAutomaticChecks(): void {
     if (this.timer || this.closing || this.interval <= 0) return;

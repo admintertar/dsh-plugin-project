@@ -1,5 +1,5 @@
 import {parse} from 'yaml';
-import type {ResourceChangeStatus, ResourceGitSync} from './resource-contract.ts';
+import type {RepositoryMergeResult, ResourceChangeStatus, ResourceGitSync} from './resource-contract.ts';
 
 /**
  * The project root is a Git repository, but its contents are project assets: tasks, skills,
@@ -42,6 +42,12 @@ export interface ProjectChangesSnapshot {
    * reuses the resource availability rules instead of inventing a second set. */
   sync?: ResourceGitSync;
   entries: ProjectChangeEntry[];
+}
+
+/** The reply to a repository action: the fresh review, plus what an update did to the branch. */
+export interface ProjectChangeActionResult extends ProjectChangesSnapshot {
+  /** Present only for an update that had to merge; absent when the branch only fast-forwarded. */
+  merge?: RepositoryMergeResult;
 }
 
 /** The retired single declaration file. It is skipped everywhere: migration removes it on open. */

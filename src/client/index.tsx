@@ -51,6 +51,7 @@ import {ProjectChangesPanel} from './ProjectChangesPanel.tsx';
 import {ResourcesOverview, ResourcesPanel} from './ResourcesPanel.tsx';
 import {ResourceAuthDialog} from './ResourceAuthDialog.tsx';
 import {TaskContinuationController, type ContinueTask, type TaskContinuationResult} from './task-continuation.ts';
+import {MergeConflictController, type MergeConflictRequest, type MergeConflictResult} from './merge-conflict.ts';
 import {ProjectPanelTransition} from './panel-transition.ts';
 import {createPickDirectory, type PickDirectory} from './pick-directory.ts';
 
@@ -72,6 +73,7 @@ interface Controller {
   show(panelId: MainPanelId): void;
   start(): Promise<void>;
   continueTask(task: ContinueTask, signal?: AbortSignal): Promise<TaskContinuationResult>;
+  handoffMergeConflict(request: MergeConflictRequest, signal?: AbortSignal): Promise<MergeConflictResult>;
   open(id: SessionId): void;
   search(query: string, signal: AbortSignal): Promise<{items: readonly SessionSearchResultItem[]; hasMore: boolean}>;
   rename(id: SessionId, title: string): Promise<void>;
@@ -137,27 +139,45 @@ export async function apply(ctx: Context): Promise<void> {
     return session !== undefined && session.cwd === state.project?.root && session.origin !== 'subagent'
       && !ctx.workspaces.list.getSnapshot().archivedSessionIds.includes(id as SessionId);
   };
+  // Both conversation handoffs prepare a session the same way, so they share these two steps.
+  const createProjectSession = async (root: string, sessionId: string): Promise<void> => {
+    const workspace = await ctx.workspaces.create({path: root});
+    await sessions.create({workspaceId: workspace.workspaceId, cwd: root, sessionId: sessionId as SessionId});
+  };
+  const projectSessionInput = (id: string) => {
+    const scope = sessions.scope(id as SessionId);
+    if (!scope) throw new Error('project-session-unavailable');
+    const input = ctx.conversation.input.for(scope);
+    return {draft: () => input.state.getSnapshot().draft, setDraft: (text: string) => input.setDraft(text),
+      canFill: () => {const state = input.state.getSnapshot(); return state.phase === 'plain' && state.attachmentIds.length === 0;},
+      notifyPreserved: (text: string) => input.notify('info', `${t('taskDraftPreservedNotice')}\n\n${text}`)};
+  };
   const continuation = new TaskContinuationController({
     project: () => state.project,
     beginNavigation: () => ctx.layout.beginNavigation(),
-    createSession: async (root, sessionId) => {
-      const workspace = await ctx.workspaces.create({path: root});
-      await sessions.create({workspaceId: workspace.workspaceId, cwd: root, sessionId: sessionId as SessionId});
-    },
+    createSession: createProjectSession,
     readTask: async id => (await capabilities.getTask(id)).task,
-    input: id => {
-      const scope = sessions.scope(id as SessionId);
-      if (!scope) throw new Error('project-session-unavailable');
-      const input = ctx.conversation.input.for(scope);
-      return {draft: () => input.state.getSnapshot().draft, setDraft: text => input.setDraft(text),
-        canFill: () => {const state = input.state.getSnapshot(); return state.phase === 'plain' && state.attachmentIds.length === 0;},
-        notifyPreserved: text => input.notify('info', `${t('taskDraftPreservedNotice')}\n\n${text}`)};
-    },
+    input: projectSessionInput,
     draft: task => t(task.status === 'completed' || task.status === 'cancelled' ? 'taskReviewDraft' : 'taskContinueDraft', {title: task.title, id: task.id}),
+    openSession: id => ctx.uiWorkspace.openSession(id as SessionId),
+  });
+  /**
+   * A merge the Host refused to complete leaves the repository untouched, so the conflicting paths
+   * become one prepared conversation instead of a half-merged tree the user has to clean up.
+   */
+  const mergeConflicts = new MergeConflictController({
+    project: () => state.project,
+    beginNavigation: () => ctx.layout.beginNavigation(),
+    createSession: createProjectSession,
+    input: projectSessionInput,
+    draft: (request, project) => t('mergeConflictDraft', {
+      files: request.files.map(path => `- ${path}`).join('\n'), root: project.root,
+      upstream: request.upstream ?? '', ahead: request.ahead ?? 0, behind: request.behind ?? 0}),
     openSession: id => ctx.uiWorkspace.openSession(id as SessionId),
   });
   const controller: Controller = {
     continueTask: (task, signal) => continuation.continue(task, signal),
+    handoffMergeConflict: (request, signal) => mergeConflicts.handoff(request, signal),
     canOpenSession,
     capabilities,
     resources,
@@ -869,7 +889,7 @@ function ProjectPanel({controller, view, t, renderSlot}: {controller: Controller
       <div className="project-summary"><Tag tone="neutral">{t(resourceCount === 1 ? 'resourceCountOne' : 'resourcesCount', {count: resourceCount})}</Tag><Tag tone="neutral">{t(project.memory.length === 1 ? 'memoryCountOne' : 'memoryCount', {count: project.memory.length})}</Tag></div>
       <section className="project-card"><h2>{t('environment')}</h2><p>{t('environmentBody')}</p><code>{project.root}</code><div className="project-card-actions"><Button variant="primary" icon={<IconNewChatOutline16 />} disabled={busy} onClick={() => void controller.start()}>{busy ? t('creating') : t('startSession')}</Button></div></section>
     </>}
-    {view === 'overview' && <section><ProjectChangesPanel controller={controller.changes} root={project.root} t={t} /></section>}
+    {view === 'overview' && <section><ProjectChangesPanel controller={controller.changes} root={project.root} t={t} handoffConflict={controller.handoffMergeConflict} /></section>}
     {view === 'overview' && <section><div className="project-card-top"><h2>{t('resources')}</h2><Button variant="outline" size="sm" onClick={() => controller.show('project.resources' as MainPanelId)}>{t('resourceManage')}</Button></div><ResourcesOverview controller={controller.resources} resources={project.resources} root={project.root} t={t} /></section>}
     {view === 'resources' && <ResourcesPanel controller={controller.resources} root={project.root} pickDirectory={controller.pickDirectory} t={t} />}
     {view === 'memory' && <MemoryPanel memory={project.memory} save={controller.saveMemory} t={t} />}

@@ -7,6 +7,7 @@ import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectCheckbox, ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
 import {canUpdateResource, resourceErrorText, resourceSyncDescription, resourceSyncLabel} from './resource-ui.ts';
 import type {ProjectChangesController, RepositorySyncAction} from './project-changes-controller.ts';
+import type {MergeConflictRequest, MergeConflictResult} from './merge-conflict.ts';
 
 const kindOrder: readonly ProjectChangeKind[] = ['task', 'skill', 'memory', 'mcp', 'file'];
 const kindKeys = {task: 'changeKindTask', skill: 'changeKindSkill', memory: 'changeKindMemory', mcp: 'changeKindMcp', file: 'changeKindFile'} as const;
@@ -67,9 +68,9 @@ function ChangeCard({entry, checked, disabled, onToggle, t}: {entry: ProjectChan
   </article>;
 }
 
-function RepositoryDetails({open, root, data, branches, controller, busy, action, onClose, t}: {open: boolean; root: string;
+function RepositoryDetails({open, root, data, branches, controller, busy, action, onUpdate, onClose, t}: {open: boolean; root: string;
   data: ProjectChangesSnapshot; branches?: ResourceBranches; controller: ProjectChangesController; busy: boolean;
-  action?: 'commit' | RepositorySyncAction; onClose(): void; t: CapabilityTranslate}) {
+  action?: 'commit' | RepositorySyncAction; onUpdate(): void; onClose(): void; t: CapabilityTranslate}) {
   const summary = syncSummary(data, t);
   // The project repository obeys the same rules as a Git resource, so the fast-forward button uses the
   // resource availability rule and the details explain what still blocks it.
@@ -82,7 +83,7 @@ function RepositoryDetails({open, root, data, branches, controller, busy, action
         onClick={() => void controller.sync('check', data.revision)}>{action === 'check' ? t('resourceSyncChecking') : t('resourceSyncCheck')}</Button>
       {(behind || action === 'update') && <Button variant="outline" disabled={busy || !updatable}
         icon={action === 'update' ? <span className="project-spinner" /> : <IconDownloadOutline16 />}
-        onClick={() => void controller.sync('update', data.revision)}>{action === 'update' ? t('resourceSyncUpdating') : t('resourceSyncUpdate')}</Button>}
+        onClick={onUpdate}>{action === 'update' ? t('resourceSyncUpdating') : t('resourceSyncUpdate')}</Button>}
       {(data.sync?.ahead ?? 0) > 0 && <Button variant="outline" disabled={busy}
         icon={action === 'push' ? <span className="project-spinner" /> : <IconRightUpOutline16 />}
         onClick={() => void controller.sync('push', data.revision)}>{action === 'push' ? t('resourceSyncPushing') : t('resourceSyncPush')}</Button>}
@@ -109,7 +110,8 @@ function RepositoryDetails({open, root, data, branches, controller, busy, action
  * The project root holds project assets, so the overview reviews assets: every changed task, Skill,
  * memory document and MCP declaration becomes a card the user decides to commit or leave alone.
  */
-export function ProjectChangesPanel({controller, root, t}: {controller: ProjectChangesController; root: string; t: CapabilityTranslate}) {
+export function ProjectChangesPanel({controller, root, t, handoffConflict}: {controller: ProjectChangesController; root: string;
+  t: CapabilityTranslate; handoffConflict?(request: MergeConflictRequest, signal?: AbortSignal): Promise<MergeConflictResult>}) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   useEffect(() => {void controller.refresh();}, [controller]);
   const data = state.data;
@@ -171,6 +173,19 @@ export function ProjectChangesPanel({controller, root, t}: {controller: ProjectC
     ? <p role="alert" className="project-error">{resourceErrorText(state.error, t)}</p>
     : <p role="status">{t('loading')}</p>}</>;
   if (!data.available) return <>{heading}<p className="project-setting-description">{t('projectRepositoryUnavailable')}</p></>;
+  /**
+   * An update that had to merge reports what happened. A conflict changed nothing in the repository,
+   * so the panel opens a prepared conversation with the conflicting paths instead of a page error.
+   */
+  const applyUpdate = async () => {
+    const result = await controller.sync('update', data.revision);
+    const merge = result?.merge;
+    if (merge?.status !== 'conflict') return;
+    await handoffConflict?.({files: merge.files, ...(data.branch === undefined ? {} : {branch: data.branch}),
+      ...(data.sync?.upstream === undefined ? {} : {upstream: data.sync.upstream}),
+      ...(data.sync?.ahead === undefined ? {} : {ahead: data.sync.ahead}),
+      ...(data.sync?.behind === undefined ? {} : {behind: data.sync.behind})});
+  };
   return <>
     {heading}
     {/* A failed repository action must say so: the sync state alone is easy to miss. */}
@@ -210,6 +225,6 @@ export function ProjectChangesPanel({controller, root, t}: {controller: ProjectC
           {state.commitError && <p role="alert" className="project-error">{resourceErrorText(state.commitError, t)}</p>}
         </>}
     <RepositoryDetails open={details} root={root} data={data} branches={branches} controller={controller} busy={state.pending}
-      action={state.action} onClose={() => setDetails(false)} t={t} />
+      action={state.action} onUpdate={() => void applyUpdate()} onClose={() => setDetails(false)} t={t} />
   </>;
 }
