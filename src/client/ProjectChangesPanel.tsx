@@ -6,7 +6,7 @@ import type {ProjectLocaleKey} from '../locales.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectCheckbox, ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
 import {resourceErrorText} from './resource-ui.ts';
-import type {ProjectChangesController} from './project-changes-controller.ts';
+import type {ProjectChangesController, RepositorySyncAction} from './project-changes-controller.ts';
 
 const kindOrder: readonly ProjectChangeKind[] = ['task', 'skill', 'memory', 'mcp', 'file'];
 const kindKeys = {task: 'changeKindTask', skill: 'changeKindSkill', memory: 'changeKindMemory', mcp: 'changeKindMcp', file: 'changeKindFile'} as const;
@@ -68,15 +68,18 @@ function ChangeCard({entry, checked, disabled, onToggle, t}: {entry: ProjectChan
   </article>;
 }
 
-function RepositoryDetails({open, root, data, branches, controller, busy, onClose, t}: {open: boolean; root: string;
-  data: ProjectChangesSnapshot; branches?: ResourceBranches; controller: ProjectChangesController; busy: boolean; onClose(): void; t: CapabilityTranslate}) {
+function RepositoryDetails({open, root, data, branches, controller, busy, action, onClose, t}: {open: boolean; root: string;
+  data: ProjectChangesSnapshot; branches?: ResourceBranches; controller: ProjectChangesController; busy: boolean;
+  action?: 'commit' | RepositorySyncAction; onClose(): void; t: CapabilityTranslate}) {
   const summary = syncSummary(data, t);
   return <ProjectScrollableModal open={open} title={t('changeRepositoryDetails')} closeLabel={t('close')} onClose={onClose}
     footer={<>
-      <Button variant="outline" icon={<IconRefreshOutline16 />} disabled={busy}
-        onClick={() => void controller.sync('check', data.revision)}>{t('resourceSyncCheck')}</Button>
-      {(data.sync?.ahead ?? 0) > 0 && <Button variant="outline" icon={<IconRightUpOutline16 />} disabled={busy}
-        onClick={() => void controller.sync('push', data.revision)}>{t('resourceSyncPush')}</Button>}
+      <Button variant="outline" disabled={busy}
+        icon={action === 'check' ? <span className="project-spinner" /> : <IconRefreshOutline16 />}
+        onClick={() => void controller.sync('check', data.revision)}>{action === 'check' ? t('resourceSyncChecking') : t('resourceSyncCheck')}</Button>
+      {(data.sync?.ahead ?? 0) > 0 && <Button variant="outline" disabled={busy}
+        icon={action === 'push' ? <span className="project-spinner" /> : <IconRightUpOutline16 />}
+        onClick={() => void controller.sync('push', data.revision)}>{action === 'push' ? t('resourceSyncPushing') : t('resourceSyncPush')}</Button>}
       <Button variant="primary" autoFocus onClick={onClose}>{t('close')}</Button>
     </>}>
     <div className="project-capability-form project-resource-details">
@@ -167,7 +170,10 @@ export function ProjectChangesPanel({controller, root, t}: {controller: ProjectC
             <Tooltip label={plan === '' ? t('changeEmpty') : plan} side="right" maxWidth={480}>
               <span className="project-mcp-action-anchor">
                 <Button variant="primary" size="sm" disabled={state.pending || items.length === 0} aria-description={plan}
-                  onClick={() => void controller.commit(items)}>{t('changeCommitSubmit', {count: items.length})}</Button>
+                  icon={state.action === 'commit' ? <span className="project-spinner" /> : undefined}
+                  onClick={() => void controller.commit(items)}>
+                  {state.action === 'commit' ? t('resourceSyncCommitting') : t('changeCommitSubmit', {count: items.length})}
+                </Button>
               </span>
             </Tooltip>
           </div>
@@ -186,6 +192,6 @@ export function ProjectChangesPanel({controller, root, t}: {controller: ProjectC
           {state.commitError && <p role="alert" className="project-error">{resourceErrorText(state.commitError, t)}</p>}
         </>}
     <RepositoryDetails open={details} root={root} data={data} branches={branches} controller={controller} busy={state.pending}
-      onClose={() => setDetails(false)} t={t} />
+      action={state.action} onClose={() => setDetails(false)} t={t} />
   </>;
 }

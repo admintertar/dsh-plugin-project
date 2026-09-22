@@ -1,7 +1,9 @@
 import {resourceErrorCodes, type ResourceBranches, type ResourceSyncAction} from '../resource-contract.ts';
 import type {ProjectChangesSnapshot} from '../project-changes.ts';
 
-interface ChangesState {data?: ProjectChangesSnapshot; error?: string; commitError?: string; loading: boolean; pending: boolean}
+interface ChangesState {data?: ProjectChangesSnapshot; error?: string; commitError?: string; loading: boolean; pending: boolean;
+  /** Which operation is in flight, so each control can say what it is doing. */
+  action?: 'commit' | RepositorySyncAction}
 const errors = new Set<string>(resourceErrorCodes);
 /** Committing the whole repository is gone; a selection of project assets replaces it. */
 export type RepositorySyncAction = Exclude<ResourceSyncAction, 'commit'>;
@@ -42,7 +44,7 @@ export class ProjectChangesController {
     if (this.disposed || this.state.pending || revision === undefined || items.length === 0) return false;
     this.current?.abort(); this.current = undefined;
     const controller = new AbortController(); this.requests.add(controller);
-    this.update({pending: true, loading: false, commitError: undefined, error: undefined});
+    this.update({pending: true, action: 'commit', loading: false, commitError: undefined, error: undefined});
     try {
       const data = await this.read<ProjectChangesSnapshot>('/changes', {method: 'POST',
         headers: {'content-type': 'application/json'},
@@ -54,7 +56,7 @@ export class ProjectChangesController {
       if (!controller.signal.aborted) this.update({commitError: this.code(error)});
       return false;
     } finally {
-      this.requests.delete(controller); this.update({pending: false});
+      this.requests.delete(controller); this.update({pending: false, action: undefined});
       if (!this.disposed) await this.refresh();
     }
   }
@@ -66,7 +68,7 @@ export class ProjectChangesController {
     if (this.disposed || this.state.pending) return false;
     this.current?.abort(); this.current = undefined;
     const controller = new AbortController(); this.requests.add(controller);
-    if (!silent) this.update({pending: true, loading: false, error: undefined});
+    if (!silent) this.update({pending: true, action, loading: false, error: undefined});
     try {
       await this.send('', {action, expectedRevision, ...(branch === undefined ? {} : {branch})}, controller.signal);
       return !this.disposed;
@@ -75,7 +77,7 @@ export class ProjectChangesController {
       return false;
     } finally {
       this.requests.delete(controller);
-      if (!silent) this.update({pending: false});
+      if (!silent) this.update({pending: false, action: undefined});
       if (!this.disposed) await this.refresh();
     }
   }

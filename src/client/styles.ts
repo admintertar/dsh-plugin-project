@@ -222,6 +222,9 @@ button.project-desktop-switch:focus-visible{outline:2px solid var(--dsw-alias-br
 .project-change-repository [data-tone]{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .project-change-repository:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .project-change-repository:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}
+/* The pinned primitives export no spinner, so this is a minimal themed ring for busy actions. */
+.project-spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--dsw-alias-border-l4);border-top-color:var(--dsw-alias-label-primary);border-radius:50%;animation:project-spin .8s linear infinite}
+@keyframes project-spin{to{transform:rotate(360deg)}}
 .project-change-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px;margin-bottom:12px}
 .project-change-group{margin-bottom:16px}
 .project-change-group-head{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
