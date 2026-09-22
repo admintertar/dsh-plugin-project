@@ -1,11 +1,14 @@
 import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
-import {mkdirSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
+import {parse, stringify} from 'yaml';
 import {ResourceCloneManager} from '../src/resource-clones.ts';
 import {ResourceSyncManager} from '../src/resource-sync.ts';
 import {runResourceGit} from '../src/resource-git.ts';
 import {changeSignature, mapProjectChanges, parseMcpServers, safeChangePath} from '../src/project-changes.ts';
+import {ProjectMcpConfigStore} from '../src/project-mcp-config.ts';
+import {stageSkillIndex} from '../src/project-staging.ts';
 import {gitFixture, resourceFixture} from './fixtures/resources.ts';
 
 /** A project root that is a Git working tree with a clean baseline commit. */
@@ -64,23 +67,34 @@ test('a fully deleted asset reports deletion while a partially deleted one repor
   assert.equal(byId.get('task:Kept')?.status, 'modified');
 });
 
-test('MCP declarations split per server and always share the declaration file', () => {
-  const head = parseMcpServers('schemaVersion: 1\nservers:\n  - id: a\n    serverName: alpha\n    enabled: true\n  - id: b\n    serverName: beta\n    enabled: true\n');
-  const working = parseMcpServers('schemaVersion: 1\nservers:\n  - id: a\n    serverName: alpha\n    enabled: false\n  - id: c\n    serverName: gamma\n    enabled: true\n');
+test('MCP declarations become one entry per server, each owning its own file', () => {
+  const head = parseMcpServers([
+    {path: 'mcp/servers/a.yaml', text: 'id: a\nserverName: alpha\nenabled: true\n'},
+    {path: 'mcp/servers/b.yaml', text: 'id: b\nserverName: beta\nenabled: true\n'}]);
+  const working = parseMcpServers([
+    {path: 'mcp/servers/a.yaml', text: 'id: a\nserverName: alpha\nenabled: false\n'},
+    {path: 'mcp/servers/c.yaml', text: 'id: c\nserverName: gamma\nenabled: true\n'}]);
   assert.deepEqual(head.map(server => server.id), ['a', 'b']);
-  const entries = mapProjectChanges([{path: 'mcp/servers.yaml', status: 'modified'}],
+  const entries = mapProjectChanges([{path: 'mcp/servers/a.yaml', status: 'modified'}],
     {memory: [], tasks: [], mcpHead: head, mcpWorking: working});
   const byId = new Map(entries.map(entry => [entry.id, entry]));
   assert.equal(byId.get('mcp:a')?.status, 'modified');
   assert.equal(byId.get('mcp:b')?.status, 'deleted');
   assert.equal(byId.get('mcp:c')?.status, 'added');
   assert.equal(byId.get('mcp:c')?.name, 'gamma');
-  assert.equal([...byId.values()].every(entry => entry.shared === true), true);
-  assert.equal([...byId.values()].every(entry => entry.paths.length === 1 && entry.paths[0] === 'mcp/servers.yaml'), true);
+  // Every declaration reports exactly the file it lives in, so one selection never stages another.
+  assert.deepEqual(byId.get('mcp:a')?.paths, ['mcp/servers/a.yaml']);
+  assert.deepEqual(byId.get('mcp:b')?.paths, ['mcp/servers/b.yaml']);
+  assert.deepEqual(byId.get('mcp:c')?.paths, ['mcp/servers/c.yaml']);
+});
+
+test('the retired single declaration file is skipped instead of becoming an asset', () => {
+  assert.deepEqual(mapProjectChanges([{path: 'mcp/servers.yaml', status: 'deleted'}], {memory: [], tasks: []}), []);
+  assert.deepEqual(mapProjectChanges([{path: 'mcp/servers.yaml', status: 'modified'}], {memory: [], tasks: []}), []);
 });
 
 test('a declaration change with no server-level difference still appears in the review', () => {
-  const servers = parseMcpServers('schemaVersion: 1\nservers:\n  - id: a\n    serverName: alpha\n');
+  const servers = parseMcpServers([{path: 'mcp/servers/a.yaml', text: 'id: a\nserverName: alpha\n'}]);
   const entries = mapProjectChanges([{path: 'mcp/servers.yaml', status: 'modified'}],
     {memory: [], tasks: [], mcpHead: servers, mcpWorking: servers});
   assert.equal(entries.length, 1);
@@ -174,5 +188,48 @@ test('a selection is refused for unsafe paths, an empty selection, a missing mes
     await assert.rejects(() => f.sync.commitProjectSelection([{paths: ['AGENT.md'], message: 'chore: x'}], revision),
       (error: Error) => error.message === 'git-index-dirty');
     assert.equal(f.git('log', '-1', '--pretty=%s'), 'baseline');
+  } finally {await f.cleanup();}
+});
+
+test('an existing single-file declaration is migrated to one file per server', async () => {
+  const f = fixture();
+  try {
+    const legacy = join(f.root, 'mcp', 'servers.yaml');
+    mkdirSync(join(f.root, 'mcp'), {recursive: true});
+    writeFileSync(legacy, stringify({schemaVersion: 1, servers: [
+      {id: 'alpha', serverName: 'alpha', enabled: true},
+      {id: 'beta', serverName: 'beta', enabled: false},
+    ]}, {lineWidth: 0}));
+    // Opening the project constructs the store, which retires the single file.
+    const store = new ProjectMcpConfigStore({root: f.root});
+    assert.equal(existsSync(legacy), false);
+    assert.deepEqual(store.list().map(server => server.id), ['alpha', 'beta']);
+    assert.deepEqual(store.get('beta'), {id: 'beta', serverName: 'beta', enabled: false,
+      hasEnvironment: false, hasHeaders: false, hasCwd: false});
+    // Idempotent: opening again finds the same declarations and nothing left to migrate.
+    const reopened = new ProjectMcpConfigStore({root: f.root});
+    assert.deepEqual(reopened.list().map(server => server.id), ['alpha', 'beta']);
+    assert.equal(existsSync(legacy), false);
+  } finally {await f.cleanup();}
+});
+
+test('committing one Skill keeps the other Skills at the committed state', async () => {
+  const f = fixture();
+  try {
+    const index = join(f.root, 'skills', 'index.yaml');
+    mkdirSync(join(f.root, 'skills'), {recursive: true});
+    const document = (alpha: boolean, beta: boolean) => stringify({schemaVersion: 1, skills: {
+      alpha: {enabled: alpha}, beta: {enabled: beta}}}, {lineWidth: 0});
+    writeFileSync(index, document(true, true));
+    f.git('add', '-A');
+    f.git('commit', '-m', 'chore: seed skills');
+    writeFileSync(index, document(false, false));
+    const revision = (await f.sync.projectRootStatus()).revision;
+    await f.sync.commitProjectSelection([{paths: ['skills/index.yaml'], message: 'docs(skills): disable alpha'}], revision,
+      async (_item, _index, readHead) => [stageSkillIndex(await readHead('skills/index.yaml'), readFileSync(index, 'utf8'), 'alpha')]);
+    const committed = parse(f.git('show', 'HEAD:skills/index.yaml')) as {skills: Record<string, {enabled: boolean}>};
+    assert.deepEqual(committed.skills, {alpha: {enabled: false}, beta: {enabled: true}});
+    const worktree = parse(readFileSync(index, 'utf8')) as {skills: Record<string, {enabled: boolean}>};
+    assert.deepEqual(worktree.skills, {alpha: {enabled: false}, beta: {enabled: false}});
   } finally {await f.cleanup();}
 });

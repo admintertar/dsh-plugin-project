@@ -59,7 +59,6 @@ function ChangeCard({entry, checked, disabled, onToggle, t}: {entry: ProjectChan
         {[entry.artifacts === undefined ? undefined : t('changeArtifacts', {count: entry.artifacts}),
           entry.paths.length > 1 ? t('changeFileCount', {count: entry.paths.length}) : undefined].filter(Boolean).join(' · ')}
       </span>}
-      {entry.shared && <p className="project-setting-description">{t('changeSharedFile')}</p>}
     </div>
     <div className="project-mcp-card-footer project-change-footer">
       <ProjectCheckbox checked={checked} disabled={disabled} label={entry.name} onChange={onToggle} />
@@ -137,7 +136,7 @@ export function ProjectChangesPanel({controller, root, t}: {controller: ProjectC
   }, [data, controller]);
   const selected = entries.filter(entry => selection.has(entry.id));
   // One commit per asset, each carrying the message its own type derives.
-  const items = selected.map(entry => ({paths: entry.paths, message: suggestMessage([entry], translate)}));
+  const items = selected.map(entry => ({id: entry.id, kind: entry.kind, paths: entry.paths, message: suggestMessage([entry], translate)}));
   // The exact history a commit would write, shown on demand from the submit button.
   const plan = items.map(item => item.message).join('\n');
   const toggle = (id: string, value: boolean) => setSelection(current => {

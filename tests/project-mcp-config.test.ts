@@ -3,6 +3,7 @@ import {chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, wr
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
+import {parse, stringify} from 'yaml';
 import {atomicWriteFile} from '../src/atomic-file.ts';
 import {ProjectMcpConfigStore, type ProjectMcpServer} from '../src/project-mcp-config.ts';
 import type {ProjectView} from '../src/project.ts';
@@ -136,7 +137,8 @@ test('project mcp config rejects oversized serialized public and local documents
   const f = fixture();
   try {
     f.store.upsert(stdio, {env: {TOKEN: 'original'}});
-    const paths = [f.store.layout.mcpServers, f.store.layout.mcpLocal];
+    // upsert now writes a per-server file; the legacy file is deliberately left alone.
+    const paths = [f.store.serverFilePath(stdio.id), f.store.layout.mcpLocal];
     chmodSync(paths[0]!, 0o640);
     const before = paths.map(path => ({bytes: readFileSync(path), mode: statSync(path).mode}));
     const assertUnchanged = () => paths.forEach((path, index) => {
@@ -153,5 +155,33 @@ test('project mcp config rejects oversized serialized public and local documents
     assert.equal(f.store.list().length, 1);
     f.store.delete(stdio.id);
     assert.deepEqual(f.store.list(), []);
+  } finally {f.cleanup();}
+});
+
+test('project mcp config reads the legacy file and lets a per-server file shadow it by id', () => {
+  const f = fixture();
+  try {
+    // A project that predates the split keeps every declaration in mcp/servers.yaml.
+    writeFileSync(join(f.root, 'mcp', 'servers.yaml'), stringify({schemaVersion: 1, servers: [stdio, http]}, {lineWidth: 0}));
+    assert.deepEqual(f.store.list().map(server => server.id), ['local-files', 'remote-search']);
+
+    // Editing one server writes its own file and leaves the legacy file untouched.
+    const stdioArgs = (id: string) => {
+      const server = f.store.get(id);
+      return server?.transport === 'stdio' ? server.args : undefined;
+    };
+    f.store.upsert({...stdio, args: ['edited.mjs']});
+    assert.deepEqual(stdioArgs('local-files'), ['edited.mjs']);
+    // The untouched sibling still comes from the legacy file.
+    assert.deepEqual(f.store.get('remote-search'), {...http, hasEnvironment: false, hasHeaders: false, hasCwd: false});
+    const legacy = parse(readFileSync(join(f.root, 'mcp', 'servers.yaml'), 'utf8')) as {servers: {id: string}[]};
+    assert.deepEqual(legacy.servers.map(server => server.id), ['local-files', 'remote-search']);
+
+    // Removing the shadowing file falls back to the legacy declaration.
+    rmSync(f.store.serverFilePath('local-files'));
+    assert.deepEqual(stdioArgs('local-files'), ['server.mjs']);
+    // Deleting an id that only lives in the legacy file rewrites that file.
+    f.store.delete('remote-search');
+    assert.deepEqual(f.store.list().map(server => server.id), ['local-files']);
   } finally {f.cleanup();}
 });

@@ -1,15 +1,17 @@
 import type {Context} from '@deepseek-ai/cordis';
 import type {IncomingMessage} from 'node:http';
-import {readFileSync, statSync} from 'node:fs';
+import {readdirSync, readFileSync, statSync} from 'node:fs';
 import {join} from 'node:path';
 import {z} from 'zod';
+import {parse as parseYaml, stringify as stringifyYaml} from 'yaml';
 import {ProjectHttpError, readJsonBody, requireAuthenticatedRequest, sendJson, sendProjectError} from './http.ts';
 import type {ProjectResourceStore} from './project-resources.ts';
 import type {ResourceCloneManager} from './resource-clones.ts';
-import {ResourceSyncManager} from './resource-sync.ts';
+import {ResourceSyncManager, type ProjectStagingResolver} from './resource-sync.ts';
 import {gitKeyChoices} from './resource-auth.ts';
 import {pickSource} from './directory-pick.ts';
-import {mapProjectChanges, parseMcpServers, type ProjectChangeContext, type ProjectChangesSnapshot} from './project-changes.ts';
+import {mapProjectChanges, parseMcpServers, type McpDeclarationFile, type ProjectChangeContext, type ProjectChangesSnapshot} from './project-changes.ts';
+import {stageSkillIndex} from './project-staging.ts';
 import {ProjectTaskStore} from './tasks.ts';
 
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
@@ -147,7 +149,20 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
         return info.isFile() && info.size <= 1_000_000 ? readFileSync(path, 'utf8') : undefined;
       } catch {return undefined;}
     };
-    const headDeclaration = await clones.run(['show', 'HEAD:mcp/servers.yaml'], project.root).catch(() => undefined);
+    // One declaration per file, read the same way for HEAD and for the worktree.
+    const workingDeclarations: McpDeclarationFile[] = [];
+    let workingNames: string[] = [];
+    try {workingNames = readdirSync(join(project.root, 'mcp', 'servers')).filter(name => name.endsWith('.yaml')).sort();}
+    catch {workingNames = [];}
+    for (const name of workingNames) {
+      workingDeclarations.push({path: `mcp/servers/${name}`, text: readDeclaration(join(project.root, 'mcp', 'servers', name))});
+    }
+    const headNames = String(await clones.run(['ls-tree', '--name-only', 'HEAD', 'mcp/servers/'], project.root).catch(() => ''))
+      .split('\n').map(name => name.trim()).filter(name => name.endsWith('.yaml')).sort();
+    const headDeclarations: McpDeclarationFile[] = [];
+    for (const name of headNames) {
+      headDeclarations.push({path: name, text: await clones.run(['show', `HEAD:${name}`], project.root).catch(() => undefined)});
+    }
     let tasks: ProjectChangeContext['tasks'] = [];
     // A damaged task directory must not hide the rest of the review.
     try {
@@ -155,7 +170,7 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
         .map(task => ({directory: task.directory, title: task.title, artifactCount: task.artifacts.length}));
     } catch {tasks = [];}
     const context: ProjectChangeContext = {memory: project.memory.map(item => ({id: item.id, name: item.name, path: item.path})),
-      tasks, mcpWorking: parseMcpServers(readDeclaration(join(project.root, 'mcp', 'servers.yaml'))), mcpHead: parseMcpServers(headDeclaration)};
+      tasks, mcpWorking: parseMcpServers(workingDeclarations), mcpHead: parseMcpServers(headDeclarations)};
     const repository = status.repository;
     return {revision: status.revision, available: repository !== undefined,
       ...(repository?.branch === undefined ? {} : {branch: repository.branch}),
@@ -171,13 +186,33 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
     if (req.method !== 'POST') return changeSnapshot();
     // One asset per commit: the client sends the ordered list, the Host creates one commit each.
     const action = z.object({action: z.literal('commit'), expectedRevision,
-      items: z.array(z.object({message: z.string().min(1).max(4096),
+      items: z.array(z.object({id: z.string().min(1).max(400), kind: z.enum(['task', 'skill', 'memory', 'mcp', 'file']),
+        message: z.string().min(1).max(4096),
         paths: z.array(z.string().min(1).max(4000)).min(1).max(500)}).strict()).min(1).max(200)}).strict()
       .parse(await readJsonBody(req));
+    const plainId = (value: string, prefix: string) => value.startsWith(prefix) ? value.slice(prefix.length) : value;
+    const root = store.read().root;
+    const readText = (path: string): string | undefined => {
+      try {
+        const info = statSync(path);
+        return info.isFile() && info.size <= 1_000_000 ? readFileSync(path, 'utf8') : undefined;
+      } catch {return undefined;}
+    };
+    const workingSkillIndex = (): string | undefined => readText(join(root, 'skills', 'index.yaml'));
+    // The Skill index is the one file several assets still share, so it is staged by content rather
+    // than by path: exactly the selected Skill's state is written into the index, worktree untouched.
+    const resolveStaged: ProjectStagingResolver = async (entry, index, readHead) => {
+      const asset = action.items[index];
+      if (asset === undefined) return undefined;
+      if (asset.kind === 'skill' && entry.paths.includes('skills/index.yaml')) {
+        return [stageSkillIndex(await readHead('skills/index.yaml'), workingSkillIndex(), plainId(asset.id, 'skill:'))];
+      }
+      return undefined;
+    };
     // Committing a selection is a write, so it serializes with the other project writes.
     let snapshot: ProjectChangesSnapshot | undefined;
     await queue(async () => {
-      await sync.commitProjectSelection(action.items, action.expectedRevision);
+      await sync.commitProjectSelection(action.items, action.expectedRevision, resolveStaged);
       snapshot = await changeSnapshot();
     });
     return snapshot ?? changeSnapshot();

@@ -1,4 +1,5 @@
-import {readFileSync, statSync} from 'node:fs';
+import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync} from 'node:fs';
+import {join} from 'node:path';
 import {parse, stringify} from 'yaml';
 import {z} from 'zod';
 import {atomicWriteFile} from './atomic-file.ts';
@@ -9,6 +10,7 @@ import {RECONNECT_DEFAULTS} from './vendor/dsh-mcp-client/connection.ts';
 const MAX_PUBLIC_BYTES = 256 * 1024;
 const MAX_LOCAL_BYTES = 256 * 1024;
 const MAX_SERVERS = 100;
+const SERVER_FILE_SUFFIX = '.yaml';
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const MIN_TOOL_TIMEOUT_MS = 100;
 const MAX_TOOL_TIMEOUT_MS = 10 * 60 * 1_000;
@@ -162,6 +164,8 @@ export class ProjectMcpConfigStore {
   constructor(project: Pick<ProjectView, 'root'>, options: ProjectMcpConfigStoreOptions = {}) {
     this.layout = ensureProjectLayout(project.root);
     this.writeFile = options.writeFile ?? atomicWriteFile;
+    // Retire the single-file layout on the way in, so every reader below only ever sees one file per server.
+    this.migrateLegacyDeclarations();
   }
 
   /** List public MCP declarations in file order with presence-only local flags. */
@@ -195,7 +199,29 @@ export class ProjectMcpConfigStore {
    */
   upsert(server: ProjectMcpServer, local?: ProjectMcpLocalOverride): ProjectMcpServerView {
     const next = this.prepare(server, local);
-    this.commit(next.publicDocument, next.localDocument, next.localChanged);
+    // Serialize and size-check both documents before the first write, so a rejected update leaves
+    // the declaration file and the private file exactly as they were.
+    const declaration = this.serializeDeclaration(next.valid);
+    const privateContent = next.localChanged ? this.serializeLocal(next.localDocument) : undefined;
+    const file = this.serverFilePath(next.valid.id);
+    const before = existsSync(file) ? readFileSync(file, 'utf8') : undefined;
+    const beforeMode = before === undefined ? 0o600 : statSync(file).mode & 0o777;
+    mkdirSync(this.layout.mcpServerDirectory, {recursive: true, mode: 0o755});
+    this.writeFile(file, declaration, 0o600);
+    if (privateContent !== undefined) {
+      try {
+        this.writeFile(this.layout.mcpLocal, privateContent, 0o600);
+      } catch (error) {
+        // Keep the two-file boundary recoverable: restore the declaration if the private write fails.
+        try {
+          if (before === undefined) unlinkSync(file);
+          else this.writeFile(file, before, beforeMode);
+        } catch (rollbackError) {
+          throw new AggregateError([error, rollbackError], 'MCP local commit failed and declaration rollback also failed');
+        }
+        throw error;
+      }
+    }
     return this.view(next.valid, next.localDocument.servers[next.valid.id]);
   }
 
@@ -232,38 +258,103 @@ export class ProjectMcpConfigStore {
     return {valid, publicDocument, localDocument, localChanged};
   }
 
-  /** Delete one declaration and its private override in the same recoverable transaction. */
+  /** Delete one declaration file and its private override. */
   delete(id: string): void {
     const validId = idSchema.parse(id);
-    const state = this.readState();
-    if (!state.public.servers.some(server => server.id === validId)) return;
-    const publicDocument: McpState['public'] = {
-      schemaVersion: 1,
-      servers: state.public.servers.filter(server => server.id !== validId),
-    };
-    const localServers = {...state.local.servers};
-    const localChanged = Object.hasOwn(localServers, validId);
-    delete localServers[validId];
-    const localDocument: McpState['local'] = {schemaVersion: 1, servers: localServers};
-    this.commit(publicDocument, localDocument, localChanged);
+    const file = this.serverFilePath(validId);
+    if (!existsSync(file)) return;
+    unlinkSync(file);
+    this.removeLocal(validId);
+  }
+
+  /** Serialize one declaration under the legacy public size contract, before any write. */
+  private serializeDeclaration(server: ProjectMcpServer): string {
+    const content = stringify(server, {lineWidth: 0});
+    if (Buffer.byteLength(content, 'utf8') > MAX_PUBLIC_BYTES) {
+      throw new Error(`MCP public config exceeds ${MAX_PUBLIC_BYTES} bytes`);
+    }
+    return content;
+  }
+
+  /** Serialize the machine-local overrides under their size contract, before any write. */
+  private serializeLocal(localDocument: McpState['local']): string {
+    const content = stringify(localDocument, {lineWidth: 0});
+    if (Buffer.byteLength(content, 'utf8') > MAX_LOCAL_BYTES) {
+      throw new Error(`MCP local config exceeds ${MAX_LOCAL_BYTES} bytes`);
+    }
+    return content;
+  }
+
+  /** Drop one private override, leaving the rest of the file untouched. */
+  private removeLocal(id: string): void {
+    const localDocument = this.readLocal();
+    if (!Object.hasOwn(localDocument.servers, id)) return;
+    const servers = {...localDocument.servers};
+    delete servers[id];
+    this.writeFile(this.layout.mcpLocal, this.serializeLocal({schemaVersion: 1, servers}), 0o600);
   }
 
   private readState(): McpState {
-    const publicDocument = publicSchema.parse(parse(boundedText(this.layout.mcpServers, MAX_PUBLIC_BYTES))) as McpState['public'];
-    let localDocument: McpState['local'];
-    try {
-      localDocument = localSchema.parse(parse(boundedText(this.layout.mcpLocal, MAX_LOCAL_BYTES))) as McpState['local'];
-    } catch (error) {
-      if (!isNodeError(error, 'ENOENT')) throw error;
-      localDocument = {schemaVersion: 1, servers: {}};
-    }
-    const byId = new Map(publicDocument.servers.map(server => [server.id, server]));
+    const byId = new Map<string, ProjectMcpServer>();
+    for (const server of this.readServerFiles()) byId.set(server.id, server);
+    const publicDocument = publicSchema.parse({schemaVersion: 1, servers: [...byId.values()]}) as McpState['public'];
+    const localDocument = this.readLocal();
     for (const [id, local] of Object.entries(localDocument.servers)) {
       const server = byId.get(id);
       if (server === undefined) throw new Error(`Unknown local MCP server override: ${id}`);
       validateLocal(server, local);
     }
     return {public: publicDocument, local: localDocument};
+  }
+
+  /**
+   * Move declarations out of the retired single file into one file per server. Every new file is
+   * written before the old one is removed, so an interrupted migration never loses a declaration,
+   * and an id that already owns a file always wins over the copy being migrated.
+   */
+  private migrateLegacyDeclarations(): void {
+    if (!existsSync(this.layout.mcpServers)) return;
+    let servers: ProjectMcpServer[];
+    try {
+      const document = publicSchema.parse(parse(boundedText(this.layout.mcpServers, MAX_PUBLIC_BYTES))) as McpState['public'];
+      servers = document.servers;
+    } catch {
+      // An unreadable legacy file is left exactly as it is instead of blocking the project.
+      return;
+    }
+    mkdirSync(this.layout.mcpServerDirectory, {recursive: true, mode: 0o755});
+    for (const server of servers) {
+      const file = this.serverFilePath(server.id);
+      if (!existsSync(file)) this.writeFile(file, this.serializeDeclaration(server), 0o600);
+    }
+    rmSync(this.layout.mcpServers, {force: true});
+  }
+
+  /** Declarations from `mcp/servers/*.yaml`, one server per file, read in file-name order. */
+  private readServerFiles(): ProjectMcpServer[] {
+    if (!existsSync(this.layout.mcpServerDirectory)) return [];
+    const names = readdirSync(this.layout.mcpServerDirectory).filter(name => name.endsWith(SERVER_FILE_SUFFIX)).sort();
+    return names.map(name => {
+      const id = name.slice(0, -SERVER_FILE_SUFFIX.length);
+      const server = serverSchema.parse(parse(boundedText(join(this.layout.mcpServerDirectory, name), MAX_PUBLIC_BYTES)));
+      if (server.id !== id) throw new Error(`MCP server file name must match its id: ${name}`);
+      return server;
+    });
+  }
+
+  /** Machine-local overrides; a missing file simply means none. */
+  private readLocal(): McpState['local'] {
+    try {
+      return localSchema.parse(parse(boundedText(this.layout.mcpLocal, MAX_LOCAL_BYTES))) as McpState['local'];
+    } catch (error) {
+      if (!isNodeError(error, 'ENOENT')) throw error;
+      return {schemaVersion: 1, servers: {}};
+    }
+  }
+
+  /** The per-server declaration path for one id. */
+  serverFilePath(id: string): string {
+    return join(this.layout.mcpServerDirectory, `${idSchema.parse(id)}${SERVER_FILE_SUFFIX}`);
   }
 
   private serialize(publicDocument: McpState['public'], localDocument: McpState['local']) {
@@ -277,27 +368,6 @@ export class ProjectMcpConfigStore {
       throw new Error(`MCP local config exceeds ${MAX_LOCAL_BYTES} bytes`);
     }
     return {publicContent, localContent};
-  }
-
-  /** Write public state first; if the private commit fails, restore the exact public bytes. */
-  private commit(publicDocument: McpState['public'], localDocument: McpState['local'], localChanged: boolean): void {
-    const {publicContent, localContent} = this.serialize(publicDocument, localDocument);
-    if (!localChanged) {
-      this.writeFile(this.layout.mcpServers, publicContent, 0o600);
-      return;
-    }
-    const beforePublic = readFileSync(this.layout.mcpServers, 'utf8');
-    const beforePublicMode = statSync(this.layout.mcpServers).mode & 0o777;
-    this.writeFile(this.layout.mcpServers, publicContent, beforePublicMode);
-    try {
-      this.writeFile(this.layout.mcpLocal, localContent, 0o600);
-    } catch (error) {
-      try {this.writeFile(this.layout.mcpServers, beforePublic, beforePublicMode);}
-      catch (rollbackError) {
-        throw new AggregateError([error, rollbackError], 'MCP private commit failed and public rollback also failed');
-      }
-      throw error;
-    }
   }
 
   private view(server: ProjectMcpServer, local: ProjectMcpLocalOverride | undefined): ProjectMcpServerView {

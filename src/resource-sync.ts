@@ -1,4 +1,5 @@
-import {existsSync, realpathSync, statSync} from 'node:fs';
+import {existsSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
 import {basename, join, resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {ProjectHttpError} from './http.ts';
@@ -9,6 +10,13 @@ import type {ResourceCloneManager} from './resource-clones.ts';
 import type {PickSource} from './api-types.ts';
 import {isProjectRootResource, managedResources} from './resource-scope.ts';
 import {safeChangePath} from './project-changes.ts';
+
+/** Exact bytes to place in the index for one path, without ever touching the worktree. */
+export interface StagedProjectFile {path: string; content: string}
+
+/** Resolves the precise content of the files a shared-file asset should commit; absent means "stage the paths as they are". */
+export type ProjectStagingResolver = (item: {paths: readonly string[]; message: string}, index: number,
+  readHead: (path: string) => Promise<string | undefined>) => Promise<readonly StagedProjectFile[] | undefined>;
 
 interface Repository {
   branch?: string; head?: string; remote?: string; remoteRef?: string; trackingRef?: string; upstreamHead?: string;
@@ -309,7 +317,8 @@ export class ResourceSyncManager {
    * message, so the history records "one task" or "one Skill" instead of a mixed changeset. Every
    * safety rule stays identical, and an index that already holds staged work is refused.
    */
-  async commitProjectSelection(items: readonly {paths: readonly string[]; message: string}[], expectedRevision: string): Promise<number> {
+  async commitProjectSelection(items: readonly {paths: readonly string[]; message: string}[], expectedRevision: string,
+    resolveStaged?: ProjectStagingResolver): Promise<number> {
     this.open();
     const item = await this.projectRootItem(true);
     if (item.status !== 'ready') resourceFailure('resource-unavailable');
@@ -335,14 +344,26 @@ export class ResourceSyncManager {
       if (!(await read(['config', '--get', 'user.email'])).trim() || !(await read(['config', '--get', 'user.name'])).trim()) {
         resourceFailure('git-identity-missing');
       }
-      for (const entry of items) {
+      for (const [index, entry] of items.entries()) {
         const selected = [...new Set(entry.paths)].map(safeChangePath);
         if (selected.length === 0 || selected.some(value => value === undefined)) resourceFailure('resource-target-invalid');
         const message = entry.message.trim();
         if (!message || message.length > 4096) resourceFailure('git-commit-message-required');
         if ((await read(['diff', '--cached', '--name-only'])).trim()) resourceFailure('git-index-dirty');
-        await this.run(['-c', 'core.hooksPath=/dev/null', 'add', '-A', '--', ...(selected as string[])], item.path!,
-          {signal: controller.signal, sync: true, timeoutMs});
+        // Assets that share a file are staged by writing their exact bytes into the index, so the
+        // worktree — and with it the rest of the review — is left untouched.
+        const staged = await resolveStaged?.(entry, index, async path => await this.run(['show', `HEAD:${path}`], item.path!,
+          {literalObjects: true, signal: controller.signal, sync: true, timeoutMs}).catch(() => undefined));
+        if (staged === undefined || staged.length === 0) {
+          await this.run(['-c', 'core.hooksPath=/dev/null', 'add', '-A', '--', ...(selected as string[])], item.path!,
+            {signal: controller.signal, sync: true, timeoutMs});
+        } else {
+          for (const file of staged) {
+            const path = safeChangePath(file.path);
+            if (path === undefined) resourceFailure('resource-target-invalid');
+            await this.stageContent(item.path!, path, file.content, controller.signal, timeoutMs);
+          }
+        }
         current();
         await this.run(['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '--message', message],
           item.path!, {signal: controller.signal, sync: true, timeoutMs});
@@ -355,6 +376,25 @@ export class ResourceSyncManager {
       release?.();
     }
   }
+  /**
+   * Put exact bytes into the index for one path without touching the worktree: `hash-object` writes
+   * the blob and `update-index --cacheinfo` points the index entry at it. The content travels through
+   * a temporary file because the shared Git runner keeps stdin closed. A blob staged here but never
+   * committed is simply unreferenced, and the next attempt is refused by the dirty-index guard.
+   */
+  private async stageContent(root: string, path: string, content: string, signal: AbortSignal, timeoutMs: number): Promise<void> {
+    const directory = mkdtempSync(join(tmpdir(), 'dsh-stage-'));
+    const file = join(directory, 'content');
+    try {
+      writeFileSync(file, content, {mode: 0o600});
+      const blob = (await this.run(['hash-object', '-w', '--', file], root, {signal, sync: true, timeoutMs})).trim();
+      if (!/^[0-9a-f]{40,64}$/.test(blob)) resourceFailure('git-sync-failed');
+      await this.run(['update-index', '--add', '--cacheinfo', '100644', blob, path], root, {signal, sync: true, timeoutMs});
+    } finally {
+      rmSync(directory, {recursive: true, force: true});
+    }
+  }
+
   private async branchNames(item: ManagedResource, signal?: AbortSignal): Promise<ResourceBranches> {
     const run: GitRun = (args, cwd) => this.run(args, cwd, {signal: signal ?? this.lifetime.signal, sync: true});
     const repository = await this.local(item, true, signal);

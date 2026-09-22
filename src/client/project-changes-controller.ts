@@ -1,5 +1,5 @@
 import {resourceErrorCodes, type ResourceBranches, type ResourceSyncAction} from '../resource-contract.ts';
-import type {ProjectChangesSnapshot} from '../project-changes.ts';
+import type {ProjectChangeKind, ProjectChangesSnapshot} from '../project-changes.ts';
 
 interface ChangesState {data?: ProjectChangesSnapshot; error?: string; commitError?: string; loading: boolean; pending: boolean;
   /** Which operation is in flight, so each control can say what it is doing. */
@@ -38,8 +38,9 @@ export class ProjectChangesController {
     } catch (error) {if (!current.signal.aborted) this.update({error: this.code(error)});}
     finally {this.requests.delete(current); if (this.current === current) this.update({loading: false});}
   }
-  /** Commit one item per selected asset, so history records each asset on its own. */
-  async commit(items: readonly {paths: readonly string[]; message: string}[]): Promise<boolean> {
+  /** Commit one item per selected asset, so history records each asset on its own. The Host needs the
+   * asset identity, not just its paths, to stage assets that share a declaration file. */
+  async commit(items: readonly {id: string; kind: ProjectChangeKind; paths: readonly string[]; message: string}[]): Promise<boolean> {
     const revision = this.state.data?.revision;
     if (this.disposed || this.state.pending || revision === undefined || items.length === 0) return false;
     this.current?.abort(); this.current = undefined;

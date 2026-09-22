@@ -22,7 +22,7 @@ test('the changes controller reports a commit while it is in flight', async () =
   const gate = deferred(); const actions: string[] = [];
   const controller = new ProjectChangesController(holding(actions, gate));
   await controller.refresh();
-  const pending = controller.commit([{paths: ['tasks/Alpha'], message: 'feat(task): record "Alpha"'}]);
+  const pending = controller.commit([{id: 'task:Alpha', kind: 'task', paths: ['tasks/Alpha'], message: 'feat(task): record "Alpha"'}]);
   await new Promise(resolve => setTimeout(resolve, 5));
   assert.equal(controller.getSnapshot().pending, true);
   assert.equal(controller.getSnapshot().action, 'commit');
