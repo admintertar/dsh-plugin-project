@@ -92,7 +92,7 @@ interface ProjectMcpServerBase {
   reconnect?: ProjectMcpReconnectConfig;
 }
 
-/** Portable MCP declaration stored in `mcp/servers.yaml`. */
+/** Portable MCP declaration; one file per server under `mcp/servers/`. */
 export type ProjectMcpServer = ProjectMcpServerBase & (
   | {transport: 'stdio'; command: string; args: string[]}
   | {transport: 'streamable-http'; url: string}

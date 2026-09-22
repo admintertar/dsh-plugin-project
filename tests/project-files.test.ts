@@ -17,11 +17,12 @@ test('new project files initialize shareable metadata and leave memory empty unt
     assert.equal(existsSync(join(root, '.agent-project/.gitignore')), true);
     assert.equal(existsSync(join(root, 'memory')), false);
     assert.deepEqual(project.memory, []);
-    for (const directory of ['tasks', 'skills', 'mcp']) {
+    for (const directory of ['tasks', 'skills', 'mcp', join('mcp', 'servers')]) {
       assert.equal(existsSync(join(root, directory)), true, `${directory} should be initialized`);
     }
     assert.equal(readFileSync(join(root, 'skills/index.yaml'), 'utf8'), 'schemaVersion: 1\nskills: {}\n');
-    assert.equal(readFileSync(join(root, 'mcp/servers.yaml'), 'utf8'), 'schemaVersion: 1\nservers: []\n');
+    // Declarations live one per file now; the retired single file is never created.
+    assert.equal(existsSync(join(root, 'mcp', 'servers.yaml')), false);
     assert.equal(resolveProjectFile(root), file);
     const original = readFileSync(file, 'utf8');
     assert.throws(() => createProjectFile(file), /EEXIST/);

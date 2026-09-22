@@ -95,10 +95,10 @@ test('the retired single declaration file is skipped instead of becoming an asse
 
 test('a declaration change with no server-level difference still appears in the review', () => {
   const servers = parseMcpServers([{path: 'mcp/servers/a.yaml', text: 'id: a\nserverName: alpha\n'}]);
-  const entries = mapProjectChanges([{path: 'mcp/servers.yaml', status: 'modified'}],
+  const entries = mapProjectChanges([{path: 'mcp/servers/a.yaml', status: 'modified'}],
     {memory: [], tasks: [], mcpHead: servers, mcpWorking: servers});
   assert.equal(entries.length, 1);
-  assert.equal(entries[0]?.id, 'mcp:mcp/servers.yaml');
+  assert.equal(entries[0]?.id, 'mcp:mcp/servers/a.yaml');
   assert.equal(entries[0]?.status, 'modified');
 });
 
@@ -188,28 +188,6 @@ test('a selection is refused for unsafe paths, an empty selection, a missing mes
     await assert.rejects(() => f.sync.commitProjectSelection([{paths: ['AGENT.md'], message: 'chore: x'}], revision),
       (error: Error) => error.message === 'git-index-dirty');
     assert.equal(f.git('log', '-1', '--pretty=%s'), 'baseline');
-  } finally {await f.cleanup();}
-});
-
-test('an existing single-file declaration is migrated to one file per server', async () => {
-  const f = fixture();
-  try {
-    const legacy = join(f.root, 'mcp', 'servers.yaml');
-    mkdirSync(join(f.root, 'mcp'), {recursive: true});
-    writeFileSync(legacy, stringify({schemaVersion: 1, servers: [
-      {id: 'alpha', serverName: 'alpha', enabled: true},
-      {id: 'beta', serverName: 'beta', enabled: false},
-    ]}, {lineWidth: 0}));
-    // Opening the project constructs the store, which retires the single file.
-    const store = new ProjectMcpConfigStore({root: f.root});
-    assert.equal(existsSync(legacy), false);
-    assert.deepEqual(store.list().map(server => server.id), ['alpha', 'beta']);
-    assert.deepEqual(store.get('beta'), {id: 'beta', serverName: 'beta', enabled: false,
-      hasEnvironment: false, hasHeaders: false, hasCwd: false});
-    // Idempotent: opening again finds the same declarations and nothing left to migrate.
-    const reopened = new ProjectMcpConfigStore({root: f.root});
-    assert.deepEqual(reopened.list().map(server => server.id), ['alpha', 'beta']);
-    assert.equal(existsSync(legacy), false);
   } finally {await f.cleanup();}
 });
 

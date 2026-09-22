@@ -17,7 +17,7 @@ test('Demo Web capabilities survive reopening without rewriting project files', 
   let skills: ProjectSkillService | undefined;
   try {
     cpSync(resolve('examples/demo-web'), root, {recursive: true});
-    for (const path of ['tasks/.gitkeep', 'skills/index.yaml', 'mcp/servers.yaml']) assert.ok(existsSync(join(root, path)), path);
+    for (const path of ['tasks/.gitkeep', 'skills/index.yaml', 'mcp']) assert.ok(existsSync(join(root, path)), path);
     const project = readProject(join(root, 'demo-web.agent-project'));
     const tasks = new ProjectTaskStore(project);
     const task = tasks.create({title: 'Keep this task', objective: 'Persist through a Host restart',
@@ -38,7 +38,7 @@ test('Demo Web capabilities survive reopening without rewriting project files', 
     const mcp = new ProjectMcpConfigStore(project);
     mcp.upsert({id: 'local', serverName: 'local', transport: 'stdio', command: 'node', args: [], enabled: false, toolCallTimeoutMs: 1000}, {env: {FIXTURE: 'test-value'}});
     const paths = ['demo-web.agent-project', '.gitignore', `tasks/${task.directory}/task.md`, '.agent-project/task-sources.yaml',
-      'skills/index.yaml', 'skills/reopen-skill/SKILL.md', 'mcp/servers.yaml', 'mcp/local.yaml'];
+      'skills/index.yaml', 'skills/reopen-skill/SKILL.md', 'mcp/servers/local.yaml', 'mcp/local.yaml'];
     const snapshot = () => paths.map(path => ({path, content: readFileSync(join(root, path), 'utf8'), mtime: statSync(join(root, path)).mtimeMs}));
     const before = snapshot();
     await skills.dispose();

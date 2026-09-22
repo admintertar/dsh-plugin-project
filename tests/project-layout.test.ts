@@ -21,7 +21,9 @@ test('project capability directories are created without replacing existing cont
     assert.equal(layout.skills, join(f.root, 'skills'));
     assert.equal(layout.mcp, join(f.root, 'mcp'));
     assert.equal(readFileSync(layout.skillIndex, 'utf8'), 'schemaVersion: 1\nskills: {}\n');
-    assert.equal(readFileSync(layout.mcpServers, 'utf8'), 'schemaVersion: 1\nservers: []\n');
+    // One declaration per file: the directory exists, the retired single file does not.
+    assert.equal(existsSync(layout.mcpServerDirectory), true);
+    assert.equal(existsSync(layout.mcpServers), false);
     const ignored = readFileSync(join(f.root, '.gitignore'), 'utf8');
     assert.match(ignored, /^dist\/$/m);
     assert.equal(existsSync(layout.memory), false);
@@ -133,7 +135,8 @@ test('a new gitignore respects umask without changing private file defaults', {s
     const layout = ensureProjectLayout(f.root);
     assert.equal(statSync(join(f.root, '.gitignore')).mode & 0o777, 0o644);
     assert.equal(statSync(layout.skillIndex).mode & 0o777, 0o600);
-    assert.equal(statSync(layout.mcpServers).mode & 0o777, 0o600);
+    // The per-server directory replaces the retired single file as the MCP surface.
+    assert.equal(statSync(layout.mcpServerDirectory).mode & 0o777, 0o755);
   } finally {process.umask(previousUmask); f.cleanup();}
 });
 

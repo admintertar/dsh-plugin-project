@@ -12,7 +12,7 @@ The root `name.agent-project` YAML file is the project entry point. Resource and
 | `tasks/<name>/task.md` | v3 任务记录，不绑定会话 / v3 task record, independent of sessions | Share |
 | `tasks/<name>/artifacts/` | 报告、SQL、图片等交付物；代码用 Git 提交引用 / Deliverables; reference code by Git commit | Share |
 | `skills/index.yaml`、`skills/<name>/SKILL.md` | 启用索引、技能定义与附属文件 / Enablement, skill instructions and supporting files | Share |
-| `mcp/servers.yaml` | 共享服务声明 / Shared service declarations | Share |
+| `mcp/servers/<id>.yaml` | 每个服务一个共享声明；旧版 `mcp/servers.yaml` 在打开项目时自动迁移 / One shared declaration per server; the retired `mcp/servers.yaml` is migrated on open | Share |
 | `mcp/local.yaml` | 本机环境、请求头、工作目录 / Local environment, headers and working directories | Ignore |
 | `.agent-project/.gitignore` | 精确忽略规则，保留内部目录 / Precise ignore rules retaining the metadata directory | Share |
 | `.agent-project/local.yaml` | 本机资源路径绑定 / Machine-local resource bindings | Ignore |

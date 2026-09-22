@@ -355,11 +355,11 @@ test('project api preserves, replaces and clears MCP secrets; testing never writ
   });
   try {
     assert.equal((await f.post('mcp', {action: 'upsert', server: declaration, local: {env: {TOKEN: 'private-fixture'}, cwd: '/private-fixture'}})).status, 200);
-    const before = [f.mcpStore.layout.mcpServers, f.mcpStore.layout.mcpLocal].map(path => readFileSync(path, 'utf8'));
+    const before = [f.mcpStore.serverFilePath(declaration.id), f.mcpStore.layout.mcpLocal].map(path => readFileSync(path, 'utf8'));
     const tested = await f.post('mcp', {action: 'test', server: {...declaration, command: 'broken'}});
     assert.equal(tested.status, 200);
     const text = await tested.text(); assert.doesNotMatch(text, /private-fixture/); assert.equal(JSON.parse(text).ok, false);
-    assert.deepEqual([f.mcpStore.layout.mcpServers, f.mcpStore.layout.mcpLocal].map(path => readFileSync(path, 'utf8')), before);
+    assert.deepEqual([f.mcpStore.serverFilePath(declaration.id), f.mcpStore.layout.mcpLocal].map(path => readFileSync(path, 'utf8')), before);
     assert.equal(f.mcp.snapshot()[0]?.status, 'connected');
     const saved = await f.post('mcp', {action: 'upsert', server: {...declaration, command: 'broken'}});
     assert.equal(saved.status, 200);

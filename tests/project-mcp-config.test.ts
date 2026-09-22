@@ -1,5 +1,5 @@
 import {strict as assert} from 'node:assert';
-import {chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync} from 'node:fs';
+import {chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
@@ -50,25 +50,24 @@ test('project mcp config merges private overrides but exposes only presence flag
   } finally {f.cleanup();}
 });
 
-test('project mcp config rejects duplicate identities and invalid transport fields', () => {
+test('project mcp config rejects duplicate server names and invalid transport fields', () => {
   const f = fixture();
   try {
-    const path = join(f.root, 'mcp/servers.yaml');
-    writeFileSync(path, [
-      'schemaVersion: 1', 'servers:',
-      '  - {id: duplicate, serverName: one, enabled: true, transport: stdio, command: node, args: [], toolCallTimeoutMs: 1000}',
-      '  - {id: duplicate, serverName: two, enabled: true, transport: stdio, command: node, args: [], toolCallTimeoutMs: 1000}',
+    // A file is named after its id, so ids cannot collide any more; server names still can.
+    writeFileSync(f.store.serverFilePath('one'), [
+      'id: one', 'serverName: shared', 'enabled: true', 'transport: stdio',
+      'command: node', 'args: []', 'toolCallTimeoutMs: 1000',
     ].join('\n'));
-    assert.throws(() => f.store.list(), /duplicate.*id/i);
-
-    writeFileSync(path, [
-      'schemaVersion: 1', 'servers:',
-      '  - {id: one, serverName: shared, enabled: true, transport: stdio, command: node, args: [], toolCallTimeoutMs: 1000}',
-      '  - {id: two, serverName: shared, enabled: true, transport: streamable-http, url: https://example.com/mcp, toolCallTimeoutMs: 1000}',
+    writeFileSync(f.store.serverFilePath('two'), [
+      'id: two', 'serverName: shared', 'enabled: true', 'transport: streamable-http',
+      'url: https://example.com/mcp', 'toolCallTimeoutMs: 1000',
     ].join('\n'));
     assert.throws(() => f.store.list(), /duplicate.*serverName/i);
 
-    writeFileSync(path, 'schemaVersion: 1\nservers:\n  - {id: mixed, serverName: mixed, enabled: true, transport: stdio, command: node, args: [], url: https://example.com, toolCallTimeoutMs: 1000}\n');
+    writeFileSync(f.store.serverFilePath('mixed'), [
+      'id: mixed', 'serverName: mixed', 'enabled: true', 'transport: stdio',
+      'command: node', 'args: []', 'url: https://example.com', 'toolCallTimeoutMs: 1000',
+    ].join('\n'));
     assert.throws(() => f.store.list(), /url|transport|unrecognized/i);
   } finally {f.cleanup();}
 });
@@ -76,7 +75,8 @@ test('project mcp config rejects duplicate identities and invalid transport fiel
 test('project mcp config validates URL, timeout, reconnect and secret placement', () => {
   const f = fixture();
   try {
-    const path = join(f.root, 'mcp/servers.yaml');
+    const path = f.store.serverFilePath(http.id);
+    f.store.upsert(http);
     assert.throws(() => f.store.upsert({...http, url: 'file:///tmp/mcp'}), /http|url/i);
     assert.throws(() => f.store.upsert({...stdio, toolCallTimeoutMs: 99}), /timeout|100/i);
     assert.throws(() => f.store.upsert({...http, reconnect: {initialDelayMs: 2_000, maxDelayMs: 1_000}}), /initialDelay|maxDelay/i);
@@ -87,10 +87,9 @@ test('project mcp config validates URL, timeout, reconnect and secret placement'
       assert.equal(readFileSync(path, 'utf8'), before);
     }
 
-    writeFileSync(path, [
-      'schemaVersion: 1', 'servers:',
-      '  - id: leaked', '    serverName: leaked', '    enabled: true', '    transport: stdio',
-      '    command: node', '    args: []', '    toolCallTimeoutMs: 1000', '    env: {TOKEN: secret}',
+    writeFileSync(f.store.serverFilePath('leaked'), [
+      'id: leaked', 'serverName: leaked', 'enabled: true', 'transport: stdio',
+      'command: node', 'args: []', 'toolCallTimeoutMs: 1000', 'env: {TOKEN: secret}',
     ].join('\n'));
     assert.throws(() => f.store.list(), /env|secret|unrecognized/i);
   } finally {f.cleanup();}
@@ -113,7 +112,7 @@ test('project mcp config rolls back the public file when the private commit fail
   const f = fixture();
   try {
     f.store.upsert(stdio, {env: {TOKEN: 'original'}});
-    const publicPath = join(f.root, 'mcp/servers.yaml');
+    const publicPath = f.store.serverFilePath(stdio.id);
     const localPath = join(f.root, 'mcp/local.yaml');
     chmodSync(localPath, 0o600);
     const beforePublic = readFileSync(publicPath, 'utf8');
@@ -158,30 +157,43 @@ test('project mcp config rejects oversized serialized public and local documents
   } finally {f.cleanup();}
 });
 
-test('project mcp config reads the legacy file and lets a per-server file shadow it by id', () => {
+test('an existing single-file declaration is migrated to one file per server on open', () => {
   const f = fixture();
   try {
     // A project that predates the split keeps every declaration in mcp/servers.yaml.
     writeFileSync(join(f.root, 'mcp', 'servers.yaml'), stringify({schemaVersion: 1, servers: [stdio, http]}, {lineWidth: 0}));
-    assert.deepEqual(f.store.list().map(server => server.id), ['local-files', 'remote-search']);
+    // Opening the project constructs the store, which retires the single file.
+    const store = new ProjectMcpConfigStore(f.project);
+    assert.equal(existsSync(join(f.root, 'mcp', 'servers.yaml')), false);
+    assert.deepEqual(store.list().map(server => server.id), ['local-files', 'remote-search']);
+    assert.deepEqual(store.get('local-files')?.serverName, 'files');
+    assert.equal(existsSync(store.serverFilePath('local-files')), true);
+    assert.equal(existsSync(store.serverFilePath('remote-search')), true);
 
-    // Editing one server writes its own file and leaves the legacy file untouched.
-    const stdioArgs = (id: string) => {
-      const server = f.store.get(id);
-      return server?.transport === 'stdio' ? server.args : undefined;
-    };
-    f.store.upsert({...stdio, args: ['edited.mjs']});
-    assert.deepEqual(stdioArgs('local-files'), ['edited.mjs']);
-    // The untouched sibling still comes from the legacy file.
-    assert.deepEqual(f.store.get('remote-search'), {...http, hasEnvironment: false, hasHeaders: false, hasCwd: false});
-    const legacy = parse(readFileSync(join(f.root, 'mcp', 'servers.yaml'), 'utf8')) as {servers: {id: string}[]};
-    assert.deepEqual(legacy.servers.map(server => server.id), ['local-files', 'remote-search']);
+    // Idempotent: opening again finds the same declarations and nothing left to migrate.
+    const reopened = new ProjectMcpConfigStore(f.project);
+    assert.deepEqual(reopened.list().map(server => server.id), ['local-files', 'remote-search']);
+    assert.equal(existsSync(join(f.root, 'mcp', 'servers.yaml')), false);
+  } finally {f.cleanup();}
+});
 
-    // Removing the shadowing file falls back to the legacy declaration.
-    rmSync(f.store.serverFilePath('local-files'));
-    assert.deepEqual(stdioArgs('local-files'), ['server.mjs']);
-    // Deleting an id that only lives in the legacy file rewrites that file.
-    f.store.delete('remote-search');
-    assert.deepEqual(f.store.list().map(server => server.id), ['local-files']);
+test('an empty single-file declaration is cleaned up without inventing a server', () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.root, 'mcp', 'servers.yaml'), 'schemaVersion: 1\nservers: []\n');
+    const store = new ProjectMcpConfigStore(f.project);
+    assert.deepEqual(store.list(), []);
+    assert.equal(existsSync(join(f.root, 'mcp', 'servers.yaml')), false);
+  } finally {f.cleanup();}
+});
+
+test('an unreadable single-file declaration is left alone instead of blocking the project', () => {
+  const f = fixture();
+  try {
+    const legacy = join(f.root, 'mcp', 'servers.yaml');
+    writeFileSync(legacy, 'schemaVersion: 1\nservers:\n  - {id: broken}\n');
+    const store = new ProjectMcpConfigStore(f.project);
+    assert.equal(existsSync(legacy), true);
+    assert.deepEqual(store.list(), []);
   } finally {f.cleanup();}
 });
