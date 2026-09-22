@@ -447,13 +447,20 @@ export class ResourceSyncManager {
     if (!text || text.length > 4096) resourceFailure('git-commit-message-required');
     if (!local.dirty) resourceFailure('git-nothing-to-commit');
     const timeoutMs = this.options.timeoutMs ?? 60_000;
+    await this.assertIdentity(item, signal, timeoutMs);
+    await this.run(['-c', 'core.hooksPath=/dev/null', 'add', '--all'], item.path!, {signal, sync: true, timeoutMs});
+    await this.run(['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '--message', text],
+      item.path!, {signal, sync: true, timeoutMs});
+  }
+  /**
+   * Creating a commit needs a committer identity, and the Host has no interactive terminal to ask
+   * for one. Without this the failure would be a generic Git error the user cannot act on.
+   */
+  private async assertIdentity(item: ManagedResource, signal: AbortSignal, timeoutMs: number): Promise<void> {
     const read = (args: readonly string[]) => this.run(args, item.path!, {signal, sync: true, timeoutMs}).catch(() => '');
     if (!(await read(['config', '--get', 'user.email'])).trim() || !(await read(['config', '--get', 'user.name'])).trim()) {
       resourceFailure('git-identity-missing');
     }
-    await this.run(['-c', 'core.hooksPath=/dev/null', 'add', '--all'], item.path!, {signal, sync: true, timeoutMs});
-    await this.run(['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '--message', text],
-      item.path!, {signal, sync: true, timeoutMs});
   }
   /** Push the current branch without ever forcing; a rejected push is reported, never rewritten. */
   private async push(item: ManagedResource, local: Repository, interactive: () => boolean, signal: AbortSignal,
@@ -566,6 +573,8 @@ export class ResourceSyncManager {
    */
   private async mergeUpstream(item: ManagedResource, upstreamHead: string, signal: AbortSignal): Promise<RepositoryMergeResult> {
     const timeoutMs = this.options.timeoutMs ?? 60_000;
+    // A merge commit needs an identity, so say which setting is missing instead of "Git failed".
+    await this.assertIdentity(item, signal, timeoutMs);
     try {
       await this.run(['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'submodule.recurse=false',
         '-c', 'commit.gpgsign=false', 'merge', '--no-edit', '--no-autostash', '--no-overwrite-ignore', upstreamHead], item.path!,

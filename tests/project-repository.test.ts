@@ -17,6 +17,7 @@ function fixture() {
   const f = resourceFixture();
   const git = gitFixture(f.root);
   git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.com');
+  git('config', 'core.autocrlf', 'false');
   git('remote', 'add', 'origin', url);
   const clones = new ResourceCloneManager(f.store, f.runtime, runResourceGit);
   const sync = new ResourceSyncManager(clones, runResourceGit, {intervalMs: 0});
@@ -36,6 +37,7 @@ function remoteFixture() {
   const f = resourceFixture();
   const git = gitFixture(f.root);
   git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.com');
+  git('config', 'core.autocrlf', 'false');
   git('remote', 'add', 'origin', url);
   git('config', 'branch.main.remote', 'origin'); git('config', 'branch.main.merge', 'refs/heads/main');
   // The remote starts as a copy of the project root, so the two share history and can fast-forward.

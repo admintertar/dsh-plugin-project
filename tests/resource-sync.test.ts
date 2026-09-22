@@ -25,6 +25,9 @@ async function fixture(options: ConstructorParameters<typeof ResourceSyncManager
   await f.store.mutate({action: 'addLocal', type: 'git', path, url, name: 'Source', expectedRevision: f.store.revision()});
   const item = f.store.read().resources.find(item => item.type === 'git')!;
   const git = (...args: string[]) => execFileSync('git', args, {cwd: path, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
+  // A clone does not inherit the source config, and merging needs a committer identity of its own.
+  git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.com');
+  git('config', 'core.autocrlf', 'false');
   let override: ((...args: Parameters<GitRun>) => ReturnType<GitRun> | undefined) | undefined;
   const calls: string[][] = [];
   const run: GitRun = async (args, cwd, runOptions) => {
@@ -186,6 +189,27 @@ test('a conflicting merge is reported and rolled back completely, never leaving 
     writeFileSync(join(f.path, 'README.md'), `# Update 1\n`); f.git('add', '.'); f.commitLocal();
     assert.deepEqual(await f.sync.start(f.item.id, 'update', f.store.revision()), {status: 'merged', files: []});
     assert.equal((await f.act('check')).status, 'ahead');
+  } finally {await f.cleanup();}
+});
+
+test('an update that must merge names the missing Git identity instead of failing generically', async () => {
+  const f = await fixture();
+  try {
+    writeFileSync(join(f.path, 'local.txt'), 'local'); f.git('add', '.'); f.commitLocal();
+    f.advance();
+    assert.equal((await f.act('check')).status, 'diverged');
+    // An empty repository-local value shadows any machine-wide identity, so this also holds on a
+    // clean CI runner, where no global user.name or user.email is configured at all.
+    f.git('config', 'user.name', ''); f.git('config', 'user.email', '');
+    assert.equal(f.git('config', '--get', 'user.name'), '');
+    const before = f.git('rev-parse', 'HEAD');
+    await f.sync.start(f.item.id, 'update', f.store.revision());
+    // Read the recorded state directly: a fresh check would replace this observation.
+    const failed = await f.state();
+    assert.equal(failed.error, 'git-identity-missing');
+    assert.equal(failed.status, 'error');
+    assert.equal(f.git('rev-parse', 'HEAD'), before);
+    assert.equal(f.git('status', '--porcelain'), '');
   } finally {await f.cleanup();}
 });
 

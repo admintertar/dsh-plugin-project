@@ -22,6 +22,11 @@ export function gitFixture(root: string, empty = false) {
   mkdirSync(root, {recursive: true});
   const git = (...args: string[]) => execFileSync('git', args, {cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
   git('init', '-b', 'main');
+  // A repository-local identity keeps the fixture independent of the machine's global Git config:
+  // an update that has to merge creates a merge commit and would otherwise fail on a clean runner.
+  // The same goes for line endings: a checkout must produce the committed bytes, never CRLF.
+  git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.com');
+  git('config', 'core.autocrlf', 'false');
   if (!empty) {
     writeFileSync(join(root, 'README.md'), '# Fixture\n'); git('add', 'README.md');
     git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', '-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'fixture');
