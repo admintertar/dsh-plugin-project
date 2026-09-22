@@ -102,3 +102,16 @@ export function ProjectDisclosure({title, children, disabled = false}: {title: s
     <div className="project-disclosure-content" hidden={!open}>{children}</div>
   </div>;
 }
+
+/**
+ * Checkbox adaptation: the pinned official primitives export no Checkbox, so this keeps a native
+ * input — for real form, keyboard and assistive semantics — and styles it with the official theme
+ * variables. Replace it with the primitive as soon as one is exported.
+ */
+export function ProjectCheckbox({checked, label, disabled = false, onChange}: {checked: boolean; label: string; disabled?: boolean; onChange(value: boolean): void}) {
+  return <label className="project-checkbox">
+    <input type="checkbox" checked={checked} disabled={disabled} aria-label={label}
+      onChange={event => onChange(event.target.checked)} />
+    <span className="project-checkbox-mark" aria-hidden="true" />
+  </label>;
+}

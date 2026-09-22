@@ -46,6 +46,8 @@ import {MemoryPanel} from './MemoryPanel.tsx';
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client';
 import {loadProjectWindowState} from './window-state.ts';
 import {ResourceController} from './resource-controller.ts';
+import {ProjectChangesController} from './project-changes-controller.ts';
+import {ProjectChangesPanel} from './ProjectChangesPanel.tsx';
 import {ResourcesOverview, ResourcesPanel} from './ResourcesPanel.tsx';
 import {ResourceAuthDialog} from './ResourceAuthDialog.tsx';
 import {TaskContinuationController, type ContinueTask, type TaskContinuationResult} from './task-continuation.ts';
@@ -57,6 +59,7 @@ interface State {project?: ProjectView; error?: string; busy: boolean}
 interface Controller {
   capabilities: ProjectCapabilityController;
   resources: ResourceController;
+  changes: ProjectChangesController;
   taskSidebar: ReturnType<typeof createTaskSidebar>;
   pickDirectory: PickDirectory;
   sessionTitle(id: string): string;
@@ -111,6 +114,7 @@ export async function apply(ctx: Context): Promise<void> {
   const taskSidebar = createTaskSidebar(ctx, capabilities);
   const panelTransition = new ProjectPanelTransition(document);
   const resources = new ResourceController(() => {void controller.refresh(); void capabilities.refresh('tasks');});
+  const changes = new ProjectChangesController();
   let state: State = {busy: false};
   let disposed = false;
   let request: AbortController | undefined;
@@ -157,6 +161,7 @@ export async function apply(ctx: Context): Promise<void> {
     canOpenSession,
     capabilities,
     resources,
+    changes,
     taskSidebar,
     pickDirectory: createPickDirectory(ctx.uiWorkspace),
     sessionTitle: id => sessions.list.getSnapshot().byId[id as SessionId]?.displayTitle ?? id,
@@ -227,7 +232,7 @@ export async function apply(ctx: Context): Promise<void> {
     const element = document.createElement('style');
     element.textContent = styles;
     document.head.append(element);
-    return () => {disposed = true; request?.abort(); continuation.dispose(); capabilities.dispose(); resources.dispose(); panelTransition.dispose(); listeners.clear(); element.remove();};
+    return () => {disposed = true; request?.abort(); continuation.dispose(); capabilities.dispose(); resources.dispose(); changes.dispose(); panelTransition.dispose(); listeners.clear(); element.remove();};
   }, 'project: client lifecycle');
   // The official sidebar remains the sole owner of child-slot declarations,
   // panel metadata, collapse animation and settings/footer contributions.
@@ -858,12 +863,13 @@ function ProjectPanel({controller, view, t, renderSlot}: {controller: Controller
   const definition = PROJECT_PANELS.find(panel => panel.view === view)!;
   const resourceCount = managedResources(project.resources, project.root).length;
   return <main className={`project-panel${view === 'tasks' ? ' project-tasks-panel' : ''}`}>
-    <header><div><p className="project-eyebrow">{t('projectMode')} · {project.id}</p><h1>{view === 'overview' ? project.name : t(definition.label)}</h1><p>{project.description}</p></div><div className="project-panel-actions"><Button variant="outline" size="sm" icon={<IconRefreshOutline16 />} onClick={() => {void controller.refresh(); if (view === 'resources' || view === 'overview') {controller.resources.clearError(); void controller.resources.refresh();} if (view === 'tasks' || view === 'skills' || view === 'tools' || view === 'mcp') void controller.capabilities.refresh(view);}}>{t('refresh')}</Button>{view === 'tasks' && renderSlot('project.task.sidebar-toggle', {})}</div></header>
+    <header><div><p className="project-eyebrow">{t('projectMode')} · {project.id}</p><h1>{view === 'overview' ? project.name : t(definition.label)}</h1><p>{project.description}</p></div><div className="project-panel-actions"><Button variant="outline" size="sm" icon={<IconRefreshOutline16 />} onClick={() => {void controller.refresh(); if (view === 'resources' || view === 'overview') {controller.resources.clearError(); void controller.resources.refresh();} if (view === 'overview') {controller.changes.clearError(); void controller.changes.refresh();} if (view === 'tasks' || view === 'skills' || view === 'tools' || view === 'mcp') void controller.capabilities.refresh(view);}}>{t('refresh')}</Button>{view === 'tasks' && renderSlot('project.task.sidebar-toggle', {})}</div></header>
     {error && <p role="alert" className="project-error">{error}</p>}
     {view === 'overview' && <>
       <div className="project-summary"><Tag tone="neutral">{t(resourceCount === 1 ? 'resourceCountOne' : 'resourcesCount', {count: resourceCount})}</Tag><Tag tone="neutral">{t(project.memory.length === 1 ? 'memoryCountOne' : 'memoryCount', {count: project.memory.length})}</Tag></div>
       <section className="project-card"><h2>{t('environment')}</h2><p>{t('environmentBody')}</p><code>{project.root}</code><div className="project-card-actions"><Button variant="primary" icon={<IconNewChatOutline16 />} disabled={busy} onClick={() => void controller.start()}>{busy ? t('creating') : t('startSession')}</Button></div></section>
     </>}
+    {view === 'overview' && <section><ProjectChangesPanel controller={controller.changes} root={project.root} t={t} /></section>}
     {view === 'overview' && <section><div className="project-card-top"><h2>{t('resources')}</h2><Button variant="outline" size="sm" onClick={() => controller.show('project.resources' as MainPanelId)}>{t('resourceManage')}</Button></div><ResourcesOverview controller={controller.resources} resources={project.resources} root={project.root} t={t} /></section>}
     {view === 'resources' && <ResourcesPanel controller={controller.resources} root={project.root} pickDirectory={controller.pickDirectory} t={t} />}
     {view === 'memory' && <MemoryPanel memory={project.memory} save={controller.saveMemory} t={t} />}

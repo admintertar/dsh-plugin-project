@@ -13,6 +13,7 @@ export const resourceErrorCodes = [
   'git-sync-busy', 'git-sync-failed', 'git-sync-timeout', 'git-local-changes', 'git-history-diverged',
   'git-no-remote', 'git-no-upstream', 'git-detached', 'git-in-progress', 'git-state-changed', 'git-remote-branch-missing', 'resource-project-root',
   'git-nothing-to-commit', 'git-commit-message-required', 'git-identity-missing', 'git-push-rejected', 'git-nothing-to-push', 'git-branch-missing',
+  'git-index-dirty',
 ] as const;
 export type ResourceErrorCode = typeof resourceErrorCodes[number];
 export interface ResourceInspection {
@@ -27,6 +28,17 @@ export interface ResourceGitSync {
 }
 /** Actions that mutate or re-read one resource repository. `branches` is a separate read. */
 export type ResourceSyncAction = 'check' | 'update' | 'commit' | 'push' | 'switch';
+/**
+ * The project repository itself. It is resolved from the project root rather than from a
+ * managed-resource id, so `managedResources()` and the resource API keep excluding it.
+ */
+export interface ProjectRepositoryView {
+  id: string; name: string; path: string;
+  /** The project revision an action must still match; the manifest is revalidated before every write. */
+  revision: string;
+  /** Absent when the project root is not a Git working tree; the panel then only explains that. */
+  repository?: {url?: string; branch?: string; sync: ResourceGitSync};
+}
 export interface ResourceBranches {
   current?: string; local: string[]; remote: string[]; remoteName?: string;
 }

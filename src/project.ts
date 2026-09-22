@@ -45,7 +45,8 @@ export interface ResourceView {
   url?: string;
   status: 'ready' | 'missing' | 'unbound' | 'unavailable';
 }
-export interface MemoryView {id: string; name: string; content: string}
+/** `path` is the declared Project-root-relative document path, as recorded in the manifest. */
+export interface MemoryView {id: string; name: string; content: string; path: string}
 export interface ProjectView {
   id: string;
   name: string;
@@ -115,7 +116,7 @@ export function readProject(manifestPath: string): ProjectView {
     const content = boundedText(path, 64_000);
     memoryBytes += Buffer.byteLength(content);
     if (memoryBytes > 128_000) throw new Error('Project memory exceeds the 128 KB context limit');
-    return {id: item.id, name: item.name, content};
+    return {id: item.id, name: item.name, content, path: item.path};
   });
   return {id: manifest.id, name: manifest.name, description: manifest.description, root, resources, memory};
 }

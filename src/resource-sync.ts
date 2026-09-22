@@ -1,13 +1,14 @@
 import {existsSync, realpathSync, statSync} from 'node:fs';
-import {join, resolve} from 'node:path';
+import {basename, join, resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {ProjectHttpError} from './http.ts';
 import {resourceFailure} from './resource-files.ts';
-import {ResourceGitError, type GitRun} from './resource-git.ts';
-import {validResourceUrl, type ManagedResource, type ResourceBranches, type ResourceChangeStatus, type ResourceChanges, type ResourceGitSync, type ResourcesSnapshot, type ResourceSyncAction} from './resource-contract.ts';
+import {inspectResourceGit, ResourceGitError, type GitRun} from './resource-git.ts';
+import {validResourceUrl, type ManagedResource, type ProjectRepositoryView, type ResourceBranches, type ResourceChangeStatus, type ResourceChanges, type ResourceGitSync, type ResourcesSnapshot, type ResourceSyncAction} from './resource-contract.ts';
 import type {ResourceCloneManager} from './resource-clones.ts';
 import type {PickSource} from './api-types.ts';
 import {isProjectRootResource, managedResources} from './resource-scope.ts';
+import {safeChangePath} from './project-changes.ts';
 
 interface Repository {
   branch?: string; head?: string; remote?: string; remoteRef?: string; trackingRef?: string; upstreamHead?: string;
@@ -26,26 +27,58 @@ function changeStatus(xy: string): ResourceChangeStatus {
   if (xy.includes('R') || xy.includes('C')) return 'renamed';
   return 'modified';
 }
+/**
+ * Git C-quotes a path that contains unusual bytes, writing non-ASCII as octal escapes. Decode it,
+ * so a Chinese task directory is a path and not a wall of numbers.
+ */
+function unquotePath(value: string): string {
+  if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) return value;
+  const body = value.slice(1, -1);
+  const bytes: number[] = [];
+  const simple: Record<string, number> = {a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11, '\\': 92, '"': 34};
+  for (let index = 0; index < body.length; index += 1) {
+    const character = body[index]!;
+    if (character !== '\\') {bytes.push(...Buffer.from(character, 'utf8')); continue;}
+    const next = body[index + 1];
+    if (next === undefined) break;
+    index += 1;
+    if (next >= '0' && next <= '7') {
+      let octal = next;
+      while (octal.length < 3) {
+        const digit = body[index + 1];
+        if (digit === undefined || digit < '0' || digit > '7') break;
+        octal += digit; index += 1;
+      }
+      bytes.push(Number.parseInt(octal, 8));
+      continue;
+    }
+    if (next in simple) {bytes.push(simple[next]!); continue;}
+    bytes.push(...Buffer.from(next, 'utf8'));
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
 /** Porcelain v2 records: `1` ordinary, `2` rename/copy, `u` unmerged, `?` untracked. */
 function parseChanges(output: string): {path: string; status: ResourceChangeStatus}[] {
   const files: {path: string; status: ResourceChangeStatus}[] = [];
   for (const line of output.split('\n')) {
     if (!line || line.startsWith('# ')) continue;
-    if (line.startsWith('? ')) {files.push({path: line.slice(2), status: 'untracked'}); continue;}
+    if (line.startsWith('? ')) {files.push({path: unquotePath(line.slice(2)), status: 'untracked'}); continue;}
     const parts = line.split(' ');
     // A path follows a fixed field count per record type, and porcelain leaves spaces unquoted.
-    if (parts[0] === 'u') {files.push({path: parts.slice(10).join(' '), status: 'conflicted'}); continue;}
+    if (parts[0] === 'u') {files.push({path: unquotePath(parts.slice(10).join(' ')), status: 'conflicted'}); continue;}
     if (parts[0] === '1' || parts[0] === '2') files.push({
-      path: parts.slice(parts[0] === '1' ? 8 : 9).join(' ').split('\t')[0]!,
+      path: unquotePath(parts.slice(parts[0] === '1' ? 8 : 9).join(' ').split('\t')[0]!),
       status: parts[0] === '2' ? 'renamed' : changeStatus(parts[1] ?? '')});
   }
   return files;
 }
 
 /** Local inspection only. Track the actual current branch; manifest.branch remains a clone option. */
-async function inspect(path: string, url: string | undefined, run: GitRun): Promise<Repository> {
+async function inspect(path: string, url: string | undefined, run: GitRun, untracked: 'normal' | 'all' = 'normal'): Promise<Repository> {
   if (realpathSync.native(await run(['rev-parse', '--show-toplevel'], path)) !== realpathSync.native(path)) resourceFailure('resource-git-invalid');
-  const output = await run(['-c', 'core.fsmonitor=false', 'status', '--porcelain=v2', '--branch', '--untracked-files=normal', '--ignore-submodules=none'], path);
+  // core.quotePath=false keeps non-ASCII paths literal; unquotePath still handles the rest.
+  const output = await run(['-c', 'core.fsmonitor=false', '-c', 'core.quotePath=false', 'status', '--porcelain=v2', '--branch', `--untracked-files=${untracked}`, '--ignore-submodules=none'], path);
   const lines = output.split('\n');
   const value = (name: string) => lines.find(line => line.startsWith(`# branch.${name} `))?.slice(name.length + 10);
   const branch = value('head'); const head = value('oid');
@@ -89,6 +122,8 @@ export class ResourceSyncManager {
   private closing = false;
   private lifetime = new AbortController();
   private reads = new Set<Promise<Repository>>();
+  /** The project repository is never a managed resource, so it is cached by project root instead of by id. */
+  private projectRoot?: {path: string; item: ManagedResource};
   private timer?: ReturnType<typeof setTimeout>;
   private readonly interval: number;
   constructor(readonly clones: ResourceCloneManager, readonly run: GitRun = clones.run,
@@ -103,19 +138,38 @@ export class ResourceSyncManager {
     if (item.type !== 'git' || item.status !== 'ready' || !item.path) resourceFailure('resource-unavailable');
     return item;
   }
+  /**
+   * The project repository itself: resolved from the project root, never from the resource list.
+   * Its remote comes from the working tree's own `origin`, because the manifest root entry is local.
+   */
+  private async projectRootItem(fresh = false): Promise<ManagedResource> {
+    const project = this.clones.project();
+    if (!fresh && this.projectRoot?.path === project.root) return this.projectRoot.item;
+    const declared = project.resources.find(item => isProjectRootResource(item, project.root));
+    const run: GitRun = (args, cwd) => this.run(args, cwd, {signal: this.lifetime.signal, sync: true});
+    const inspection = await inspectResourceGit(project.root, run);
+    const item: ManagedResource = {id: declared?.id ?? 'root', name: declared?.name ?? (basename(project.root) || project.root),
+      type: 'git', status: inspection ? 'ready' : 'unavailable', path: project.root, external: false,
+      ...(inspection?.url ? {url: inspection.url} : {}), ...(inspection?.branch ? {git: {branch: inspection.branch}} : {})};
+    this.projectRoot = {path: project.root, item};
+    return item;
+  }
+  private rootItem(): ManagedResource {return this.projectRoot?.item ?? resourceFailure('git-sync-failed');}
   private key(item: ManagedResource): string {
     const stat = statSync(item.path!);
     return JSON.stringify([item.path, item.url, stat.dev, stat.ino]);
   }
-  private local(item: ManagedResource, fresh = false, signal?: AbortSignal): Promise<Repository> {
+  private local(item: ManagedResource, fresh = false, signal?: AbortSignal, untracked: 'normal' | 'all' = 'normal'): Promise<Repository> {
     const key = this.key(item);
-    const cached = this.cache.get(item.id);
+    // The same repository can be read in either untracked-file mode, so the cache is keyed by both.
+    const cacheKey = untracked === 'normal' ? item.id : `${item.id}\u0000${untracked}`;
+    const cached = this.cache.get(cacheKey);
     if (!fresh && cached && Date.now() - cached.at < 5000 && cached.key === key) return cached.result;
     const run: GitRun = (args, cwd) => this.run(args, cwd, {signal: signal ?? this.lifetime.signal, sync: true});
     const entry = {key, at: Infinity, result: Promise.resolve({} as Repository)};
-    const result = entry.result = inspect(item.path!, item.url, run).finally(() => {entry.at = Date.now(); this.reads.delete(result);});
+    const result = entry.result = inspect(item.path!, item.url, run, untracked).finally(() => {entry.at = Date.now(); this.reads.delete(result);});
     this.reads.add(result);
-    if (!fresh) this.cache.set(item.id, entry);
+    if (!fresh) this.cache.set(cacheKey, entry);
     return result;
   }
   private view(local: Repository, record?: RecordState): ResourceGitSync {
@@ -154,7 +208,11 @@ export class ResourceSyncManager {
     return data;
   }
   assertMutable(id: string): void {if (this.active.has(id)) resourceFailure('git-sync-busy');}
-  invalidate(id: string): void {this.records.delete(id); this.cache.delete(id);}
+  invalidate(id: string): void {this.records.delete(id); this.clearCache(id);}
+  /** A repository can be cached in more than one untracked-file mode. */
+  private clearCache(id: string): void {
+    for (const key of [...this.cache.keys()]) if (key === id || key.startsWith(`${id}\u0000`)) this.cache.delete(key);
+  }
   private static readonly phases: Record<ResourceSyncAction, NonNullable<ResourceGitSync['phase']>> =
     {check: 'checking', update: 'updating', commit: 'committing', push: 'pushing', switch: 'switching'};
   /** `input` carries the commit message or the target branch, depending on the action. */
@@ -165,16 +223,34 @@ export class ResourceSyncManager {
     if (existing?.phase === 'checking' && action === 'check') {existing.interactive ||= interactive; return existing.done;}
     if (existing) resourceFailure('git-sync-busy');
     const item = this.resource(id); const key = this.key(item);
+    return this.begin(item, action, expectedRevision, interactive, input, key, () => this.resource(id));
+  }
+  /** The project repository shares every action and safety rule with a Git resource. */
+  async startProjectRoot(action: ResourceSyncAction, expectedRevision: string, interactive = true, input?: string): Promise<void> {
+    this.open(); this.clones.store.assertRevision(expectedRevision);
+    const item = await this.projectRootItem(true);
+    if (item.status !== 'ready') resourceFailure('resource-unavailable');
+    const existing = this.active.get(item.id);
+    if (existing?.phase === 'checking' && action === 'check') {existing.interactive ||= interactive; return existing.done;}
+    if (existing) resourceFailure('git-sync-busy');
+    return this.begin(item, action, expectedRevision, interactive, input, this.key(item), () => this.rootItem());
+  }
+  /**
+   * `resolve` re-reads the same repository while an action runs: resources resolve by id, the
+   * project repository by root, so the resource API keeps refusing the project root.
+   */
+  private begin(item: ManagedResource, action: ResourceSyncAction, expectedRevision: string, interactive: boolean,
+    input: string | undefined, key: string, resolve: () => ManagedResource): Promise<void> {
     // Switching branches is a local operation; every other action needs the configured remote.
     if (action !== 'switch' && !item.url) resourceFailure('git-no-remote');
     const controller = new AbortController();
     const active: ActiveSync = {phase: ResourceSyncManager.phases[action], controller, done: Promise.resolve(), interactive};
-    this.active.set(id, active);
+    this.active.set(item.id, active);
     const operation = action === 'check' || action === 'update'
-      ? this.execute(item, key, action, expectedRevision, controller.signal, () => active.interactive)
-      : this.mutate(item, key, action, input, expectedRevision, controller.signal, () => active.interactive);
+      ? this.execute(item, key, action, expectedRevision, controller.signal, () => active.interactive, resolve)
+      : this.mutate(item, key, action, input, expectedRevision, controller.signal, () => active.interactive, resolve);
     active.done = operation.finally(() => {
-      this.cache.delete(id); this.clones.invalidate(); if (this.active.get(id) === active) this.active.delete(id);
+      this.clearCache(item.id); this.clones.invalidate(); if (this.active.get(item.id) === active) this.active.delete(item.id);
     });
     return active.done;
   }
@@ -187,6 +263,97 @@ export class ResourceSyncManager {
   async changes(id: string): Promise<ResourceChanges> {
     this.open();
     return {files: (await this.local(this.resource(id), true)).files};
+  }
+  /** Project-repository status. Like a resource, only an explicit check advances the remote observation. */
+  async projectRootStatus(): Promise<ProjectRepositoryView> {
+    this.open();
+    const item = await this.projectRootItem(true);
+    const revision = this.clones.store.revision();
+    if (item.status !== 'ready') return {id: item.id, name: item.name, path: item.path!, revision};
+    let branch = item.git?.branch;
+    let sync: ResourceGitSync;
+    try {
+      const key = this.key(item); let record = this.records.get(item.id);
+      if (record && record.key !== key) {this.invalidate(item.id); record = undefined;}
+      const local = await this.local(item);
+      // A branch change invalidates the previous remote observation, including its error.
+      if (record?.target && record.target !== local.target && !this.active.has(item.id)) {
+        record = {key, target: local.target, attemptedAt: 0, ...(record.error === 'git-state-changed' ? {error: record.error} : {})};
+        this.records.set(item.id, record);
+      }
+      branch = local.branch ?? branch;
+      sync = this.view(local, record);
+      const active = this.active.get(item.id);
+      if (active) sync.phase = active.phase;
+    } catch (error) {sync = {status: 'error', error: failureCode(error)};}
+    return {id: item.id, name: item.name, path: item.path!, revision,
+      repository: {branch, sync, ...(item.url ? {url: item.url} : {})}};
+  }
+  /** Branch names for the project repository, with the same local/remote split as a resource. */
+  async projectRootBranches(): Promise<ResourceBranches> {
+    this.open();
+    const item = await this.projectRootItem(true);
+    if (item.status !== 'ready') resourceFailure('resource-unavailable');
+    return this.branchNames(item);
+  }
+  /** The changes a project-repository commit would include. */
+  async projectRootChanges(): Promise<ResourceChanges> {
+    this.open();
+    const item = await this.projectRootItem(true);
+    if (item.status !== 'ready') resourceFailure('resource-unavailable');
+    // Git collapses a wholly untracked asset directory; expand it so assets stay recognizable.
+    return {files: (await this.local(item, true, undefined, 'all')).files};
+  }
+  /**
+   * Commit the selected project assets one by one. Each asset becomes its own commit with its own
+   * message, so the history records "one task" or "one Skill" instead of a mixed changeset. Every
+   * safety rule stays identical, and an index that already holds staged work is refused.
+   */
+  async commitProjectSelection(items: readonly {paths: readonly string[]; message: string}[], expectedRevision: string): Promise<number> {
+    this.open();
+    const item = await this.projectRootItem(true);
+    if (item.status !== 'ready') resourceFailure('resource-unavailable');
+    if (items.length === 0 || items.length > 200) resourceFailure('resource-target-invalid');
+    this.clones.store.assertRevision(expectedRevision);
+    if (this.active.has(item.id)) resourceFailure('git-sync-busy');
+    const controller = new AbortController();
+    const active: ActiveSync = {phase: 'committing', controller, done: Promise.resolve(), interactive: true};
+    this.active.set(item.id, active);
+    const key = this.key(item);
+    const current = () => {
+      this.open(); if (controller.signal.aborted) resourceFailure('project-closing');
+      this.clones.store.assertRevision(expectedRevision);
+      if (this.key(this.rootItem()) !== key) resourceFailure('git-state-changed');
+    };
+    let release: (() => void) | undefined;
+    try {
+      release = await this.lockRepository(item, controller.signal); current();
+      const before = await this.local(item, true, controller.signal); current();
+      if (before.inProgress) resourceFailure('git-in-progress');
+      const timeoutMs = this.options.timeoutMs ?? 60_000;
+      const read = (args: readonly string[]) => this.run(args, item.path!, {sync: true, timeoutMs}).catch(() => '');
+      if (!(await read(['config', '--get', 'user.email'])).trim() || !(await read(['config', '--get', 'user.name'])).trim()) {
+        resourceFailure('git-identity-missing');
+      }
+      for (const entry of items) {
+        const selected = [...new Set(entry.paths)].map(safeChangePath);
+        if (selected.length === 0 || selected.some(value => value === undefined)) resourceFailure('resource-target-invalid');
+        const message = entry.message.trim();
+        if (!message || message.length > 4096) resourceFailure('git-commit-message-required');
+        if ((await read(['diff', '--cached', '--name-only'])).trim()) resourceFailure('git-index-dirty');
+        await this.run(['-c', 'core.hooksPath=/dev/null', 'add', '-A', '--', ...(selected as string[])], item.path!,
+          {signal: controller.signal, sync: true, timeoutMs});
+        current();
+        await this.run(['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '--message', message],
+          item.path!, {signal: controller.signal, sync: true, timeoutMs});
+        current();
+      }
+      return items.length;
+    } finally {
+      this.clearCache(item.id);
+      if (this.active.get(item.id) === active) this.active.delete(item.id);
+      release?.();
+    }
   }
   private async branchNames(item: ManagedResource, signal?: AbortSignal): Promise<ResourceBranches> {
     const run: GitRun = (args, cwd) => this.run(args, cwd, {signal: signal ?? this.lifetime.signal, sync: true});
@@ -208,7 +375,7 @@ export class ResourceSyncManager {
    * refuses an unsafe state before touching anything; none of them rewrites history.
    */
   private async mutate(item: ManagedResource, key: string, action: 'commit' | 'push' | 'switch', input: string | undefined,
-    revision: string, signal: AbortSignal, interactive: () => boolean): Promise<void> {
+    revision: string, signal: AbortSignal, interactive: () => boolean, resolve: () => ManagedResource): Promise<void> {
     const previous = this.records.get(item.id);
     const record: RecordState = {key, attemptedAt: Date.now(),
       ...(previous?.key === key ? {checkedAt: previous.checkedAt, target: previous.target, updatedAt: previous.updatedAt} : {})};
@@ -216,7 +383,7 @@ export class ResourceSyncManager {
     const current = () => {
       this.open(); if (signal.aborted) resourceFailure('project-closing');
       this.clones.store.assertRevision(revision);
-      if (this.key(this.resource(item.id)) !== key) resourceFailure('git-state-changed');
+      if (this.key(resolve()) !== key) resourceFailure('git-state-changed');
     };
     let release: (() => void) | undefined;
     try {
@@ -301,14 +468,15 @@ export class ResourceSyncManager {
     await previous;
     return () => {release(); if (this.repositoryTails.get(key) === tail) this.repositoryTails.delete(key);};
   }
-  private async execute(item: ManagedResource, key: string, action: 'check' | 'update', revision: string, signal: AbortSignal, interactive: () => boolean): Promise<void> {
+  private async execute(item: ManagedResource, key: string, action: 'check' | 'update', revision: string, signal: AbortSignal,
+    interactive: () => boolean, resolve: () => ManagedResource): Promise<void> {
     const previous = this.records.get(item.id);
     const record: RecordState = {key, attemptedAt: Date.now(), ...(previous?.key === key ? {checkedAt: previous.checkedAt, target: previous.target, updatedAt: previous.updatedAt} : {})};
     this.records.set(item.id, record);
     const current = () => {
       this.open(); if (signal.aborted) resourceFailure('project-closing');
       this.clones.store.assertRevision(revision);
-      if (this.key(this.resource(item.id)) !== key) resourceFailure('git-state-changed');
+      if (this.key(resolve()) !== key) resourceFailure('git-state-changed');
     };
     let release: (() => void) | undefined;
     try {

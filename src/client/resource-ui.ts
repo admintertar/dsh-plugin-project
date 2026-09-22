@@ -28,6 +28,7 @@ const errorKeys = {
   'git-identity-missing': 'resourceCommitIdentity', 'git-push-rejected': 'resourcePushRejected',
   'git-nothing-to-push': 'resourcePushClean', 'git-branch-missing': 'resourceBranchMissing',
   'git-no-remote': 'resourceSyncUnlinkedBody', 'resource-project-root': 'resourceProjectRootBody',
+  'git-index-dirty': 'resourceIndexDirty',
 } as const;
 export function resourceErrorText(code: string, t: CapabilityTranslate): string {return t(errorKeys[code as keyof typeof errorKeys] ?? 'capabilityError');}
 const syncLabels = {unborn: 'resourceSyncUnborn', unchecked: 'resourceSyncUnchecked', current: 'resourceSyncCurrent', behind: 'resourceSyncBehind', ahead: 'resourceSyncAhead',

@@ -156,3 +156,37 @@ test('resource endpoints refuse manifest identity changes during the same Host l
     assert.equal((await f.post('/inspect', {path: f.outside})).status, 422);
   } finally {await f.cleanup();}
 });
+
+test('the project repository route is authenticated and validated separately from the resource API', async () => {
+  const f = await fixture();
+  try {
+    const url = f.origin + '/api/project/repository';
+    assert.equal((await fetch(url)).status, 401);
+    assert.equal((await fetch(url, {method: 'DELETE', headers: f.headers})).status, 405);
+    const body = await (await fetch(url, {headers: f.headers})).json();
+    assert.match(body.revision, /^[a-f0-9]{64}$/);
+    assert.equal(body.path, f.root);
+    // This fixture's project root is not a Git working tree, so there is no repository to report.
+    assert.equal(body.repository, undefined);
+    // Writes require the same origin and JSON content type as every other project route.
+    assert.equal((await fetch(url, {method: 'POST', headers: {...f.headers, origin: 'http://evil.invalid'},
+      body: JSON.stringify({action: 'check', expectedRevision: body.revision})})).status, 403);
+    // A malformed action is rejected before it can reach Git.
+    assert.equal((await fetch(url, {method: 'POST', headers: f.headers,
+      body: JSON.stringify({action: 'nope', expectedRevision: body.revision})})).status, 422);
+    // The resource API keeps refusing the project root, so the two surfaces stay separate.
+    assert.equal((await f.post('/sync', {id: 'root', action: 'check', expectedRevision: body.revision})).status, 409);
+    // The asset review has its own route. This fixture's root is not a Git tree, so it says so.
+    const changesUrl = `${url}/changes`;
+    const changes = await (await fetch(changesUrl, {headers: f.headers})).json();
+    assert.equal(changes.available, false);
+    assert.deepEqual(changes.entries, []);
+    assert.match(changes.revision, /^[a-f0-9]{64}$/);
+    // A selection commit requires a message and at least one path.
+    assert.equal((await fetch(changesUrl, {method: 'POST', headers: f.headers,
+      body: JSON.stringify({action: 'commit', expectedRevision: changes.revision, message: '', paths: []})})).status, 422);
+    // Committing the whole repository is gone from the repository route.
+    assert.equal((await fetch(url, {method: 'POST', headers: f.headers,
+      body: JSON.stringify({action: 'commit', expectedRevision: changes.revision})})).status, 422);
+  } finally {await f.cleanup();}
+});

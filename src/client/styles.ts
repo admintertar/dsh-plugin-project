@@ -208,4 +208,36 @@ button.project-desktop-switch:focus-visible{outline:2px solid var(--dsw-alias-br
    scrollbar height so long lines do not move the following content. */
 .project-task-commit [data-diff]>div:first-of-type{overflow-x:scroll;scrollbar-gutter:stable}
 @container project-tasks (max-width:650px){.project-tasks>.project-capability-layout{grid-template-columns:minmax(0,1fr)}.project-tasks .project-task-detail{display:none}.project-tasks.showing-detail .project-task-detail{display:block}.project-tasks.showing-detail .project-task-roster{display:none}.project-task-navigation{display:flex}}
+/* Project asset review: one row per changed task, Skill, memory document or MCP declaration. */
+/* Branch and sync state sit next to the section title; repository actions keep their own row. */
+.project-change-title{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
+.project-change-title h2{margin:0;min-width:0;line-height:24px}
+/* The shared branch label pushes itself right inside a card; here it follows the title. */
+.project-change-title .project-resource-branch{margin-left:0}
+/* The repository state is the entry point to its details, so it behaves like a quiet button. */
+.project-change-repository{display:inline-flex;align-items:center;gap:8px;min-width:0;margin:0;padding:2px 8px;border:0;border-radius:8px;background:transparent;font:inherit;color:inherit;cursor:pointer}
+.project-change-repository:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.project-change-repository:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}
+.project-change-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px;margin-bottom:12px}
+.project-change-group{margin-bottom:16px}
+.project-change-group-head{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.project-change-group-head h3{margin:0;font-size:13px;line-height:20px;font-weight:500;color:var(--dsw-alias-label-secondary)}
+.project-change-group-head span{font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary)}
+/* Card shell, body and footer come from the shared MCP/Resource card adaptation. The checkbox in
+   the footer already says whether an asset is committed, so selection needs no extra emphasis. */
+.project-change-card>.project-change-footer{justify-content:flex-start;align-items:center;gap:8px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.project-change-heading{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
+.project-change-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.project-change-path{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}
+.project-change-card .project-setting-description{margin:0}
+/* The commit plan is shown from the submit button's tooltip, not as a block on the page. */
+/* The pinned primitives export no Checkbox; a native input keeps form and keyboard semantics. */
+.project-checkbox{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin-top:1px;cursor:pointer}
+.project-checkbox input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.project-checkbox-mark{box-sizing:border-box;width:16px;height:16px;border:1.5px solid var(--dsw-alias-border-l4);border-radius:4px;transition:background .16s,border-color .16s}
+.project-checkbox input:checked+.project-checkbox-mark{background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary)}
+.project-checkbox input:checked+.project-checkbox-mark::after{content:'';display:block;width:8px;height:4px;margin:2.5px auto 0;border-left:2px solid var(--dsw-alias-bg-base,#fff);border-bottom:2px solid var(--dsw-alias-bg-base,#fff);transform:rotate(-45deg)}
+.project-checkbox input:focus-visible+.project-checkbox-mark{outline:2px solid var(--dsw-alias-label-primary);outline-offset:2px}
+.project-checkbox input:disabled{cursor:not-allowed}
+.project-checkbox input:disabled+.project-checkbox-mark{opacity:.5}
 `;
