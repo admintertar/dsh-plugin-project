@@ -124,8 +124,14 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
     const action = repositorySchema.parse(await readJsonBody(req));
     // `switch` carries the target branch; the other actions take neither.
     const input = action.action === 'switch' ? action.branch : undefined;
-    await queue(() => {void sync.startProjectRoot(action.action, action.expectedRevision, true, input); return Promise.resolve();});
-    return {accepted: true};
+    // Wait for Git before answering: the reply carries the resulting state, so one click is enough
+    // and the caller never has to poll or guess whether the action took effect.
+    let snapshot;
+    await queue(async () => {
+      await sync.startProjectRoot(action.action, action.expectedRevision, true, input);
+      snapshot = await sync.projectRootStatus();
+    });
+    return snapshot ?? sync.projectRootStatus();
   });
   registerRepository('/branches', ['GET'], async () => sync.projectRootBranches());
   /** Asset-level review of the project root: Git reports files, the overview reviews project assets. */

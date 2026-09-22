@@ -210,12 +210,16 @@ button.project-desktop-switch:focus-visible{outline:2px solid var(--dsw-alias-br
 @container project-tasks (max-width:650px){.project-tasks>.project-capability-layout{grid-template-columns:minmax(0,1fr)}.project-tasks .project-task-detail{display:none}.project-tasks.showing-detail .project-task-detail{display:block}.project-tasks.showing-detail .project-task-roster{display:none}.project-task-navigation{display:flex}}
 /* Project asset review: one row per changed task, Skill, memory document or MCP declaration. */
 /* Branch and sync state sit next to the section title; repository actions keep their own row. */
-.project-change-title{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
+/* Two columns keep the state block inside the space left by the title, so a long error truncates
+   instead of wrapping the whole block onto its own line. */
+.project-change-title{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-width:0}
 .project-change-title h2{margin:0;min-width:0;line-height:24px}
 /* The shared branch label pushes itself right inside a card; here it follows the title. */
 .project-change-title .project-resource-branch{margin-left:0}
 /* The repository state is the entry point to its details, so it behaves like a quiet button. */
-.project-change-repository{display:inline-flex;align-items:center;gap:8px;min-width:0;margin:0;padding:2px 8px;border:0;border-radius:8px;background:transparent;font:inherit;color:inherit;cursor:pointer}
+.project-change-repository{display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%;justify-self:start;margin:0;padding:2px 8px;border:0;border-radius:8px;background:transparent;font:inherit;color:inherit;cursor:pointer}
+/* A long error state must not push the whole block onto its own line; the tooltip carries it whole. */
+.project-change-repository [data-tone]{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .project-change-repository:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .project-change-repository:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}
 .project-change-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px;margin-bottom:12px}

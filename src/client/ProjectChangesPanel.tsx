@@ -68,14 +68,14 @@ function ChangeCard({entry, checked, disabled, onToggle, t}: {entry: ProjectChan
   </article>;
 }
 
-function RepositoryDetails({open, root, data, branches, controller, onClose, t}: {open: boolean; root: string;
-  data: ProjectChangesSnapshot; branches?: ResourceBranches; controller: ProjectChangesController; onClose(): void; t: CapabilityTranslate}) {
+function RepositoryDetails({open, root, data, branches, controller, busy, onClose, t}: {open: boolean; root: string;
+  data: ProjectChangesSnapshot; branches?: ResourceBranches; controller: ProjectChangesController; busy: boolean; onClose(): void; t: CapabilityTranslate}) {
   const summary = syncSummary(data, t);
   return <ProjectScrollableModal open={open} title={t('changeRepositoryDetails')} closeLabel={t('close')} onClose={onClose}
     footer={<>
-      <Button variant="outline" icon={<IconRefreshOutline16 />}
+      <Button variant="outline" icon={<IconRefreshOutline16 />} disabled={busy}
         onClick={() => void controller.sync('check', data.revision)}>{t('resourceSyncCheck')}</Button>
-      {(data.sync?.ahead ?? 0) > 0 && <Button variant="outline" icon={<IconRightUpOutline16 />}
+      {(data.sync?.ahead ?? 0) > 0 && <Button variant="outline" icon={<IconRightUpOutline16 />} disabled={busy}
         onClick={() => void controller.sync('push', data.revision)}>{t('resourceSyncPush')}</Button>}
       <Button variant="primary" autoFocus onClick={onClose}>{t('close')}</Button>
     </>}>
@@ -135,11 +135,13 @@ export function ProjectChangesPanel({controller, root, t}: {controller: ProjectC
   const heading = <div className="project-card-top">
     <div className="project-change-title">
       <h2>{t('projectChanges')}</h2>
-      {data?.available === true && summary !== undefined && <button type="button" className="project-change-repository"
-        aria-haspopup="dialog" aria-label={t('changeRepositoryDetails')} onClick={() => setDetails(true)}>
-        {data.branch !== undefined && <span className="project-resource-branch"><IconBranchOutline16 /><span>{data.branch}</span></span>}
-        <Tag tone={summary.tone}>{summary.label}</Tag>
-      </button>}
+      {data?.available === true && summary !== undefined && <Tooltip label={summary.label} side="bottom" maxWidth={480}>
+        <button type="button" className="project-change-repository"
+          aria-haspopup="dialog" aria-label={t('changeRepositoryDetails')} onClick={() => setDetails(true)}>
+          {data.branch !== undefined && <span className="project-resource-branch"><IconBranchOutline16 /><span>{data.branch}</span></span>}
+          <Tag tone={summary.tone}>{summary.label}</Tag>
+        </button>
+      </Tooltip>}
     </div>
     <Button variant="outline" size="sm" icon={<IconRefreshOutline16 />}
       onClick={() => {controller.clearError(); void controller.refresh();}}>{t('refresh')}</Button>
@@ -150,6 +152,8 @@ export function ProjectChangesPanel({controller, root, t}: {controller: ProjectC
   if (!data.available) return <>{heading}<p className="project-setting-description">{t('projectRepositoryUnavailable')}</p></>;
   return <>
     {heading}
+    {/* A failed repository action must say so: the sync state alone is easy to miss. */}
+    {state.error && <p role="alert" className="project-error">{resourceErrorText(state.error, t)}</p>}
     {entries.length === 0
       ? <p className="project-setting-description">{t('changeEmpty')}</p>
       : <>
@@ -181,7 +185,7 @@ export function ProjectChangesPanel({controller, root, t}: {controller: ProjectC
           })}
           {state.commitError && <p role="alert" className="project-error">{resourceErrorText(state.commitError, t)}</p>}
         </>}
-    <RepositoryDetails open={details} root={root} data={data} branches={branches} controller={controller}
+    <RepositoryDetails open={details} root={root} data={data} branches={branches} controller={controller} busy={state.pending}
       onClose={() => setDetails(false)} t={t} />
   </>;
 }
