@@ -3,7 +3,7 @@ import {Button, IconBranchOutline16, IconCheckOutline16, IconDownloadOutline16, 
 import type {ManagedResource, ResourceBranches, ResourceChangeStatus, ResourceChanges} from '../resource-contract.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
-import {canCheckResource, canCommitResource, canPushResource, canSwitchResource, canUpdateResource, resourceErrorText, resourceSyncLabel} from './resource-ui.ts';
+import {canCheckResource, canCommitResource, canPushResource, canSwitchResource, canUpdateResource, resourceErrorText, resourceSyncDescription, resourceSyncLabel} from './resource-ui.ts';
 
 function resourceStatusLabel(item: ManagedResource) {
   return item.status === 'ready' ? 'resourceReady' : item.status === 'unbound' ? 'resourceUnbound' : item.status === 'missing' ? 'missing' : 'resourceUnavailable';
@@ -91,11 +91,7 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
   const sync = syncError ? {...item.git?.sync, status: 'error' as const, error: syncError}
     : item.git?.sync ?? (gitReady && !item.url ? {status: 'unlinked' as const} : undefined);
   const label = gitReady ? resourceSyncLabel(sync, t) : t(resourceStatusLabel(item));
-  const syncDescription = sync?.error ? resourceErrorText(sync.error, t) : sync?.status === 'unlinked' ? t('resourceSyncUnlinkedBody')
-    : sync?.status === 'unborn' ? t('resourceSyncUnbornBody')
-    : sync?.status === 'no-upstream' ? t('resourceSyncNoUpstreamBody') : sync?.inProgress ? t('resourceSyncInProgressBody')
-    : sync?.status === 'diverged' ? t('resourceSyncDivergedBody') : sync?.dirty ? t('resourceSyncDirtyBody')
-    : sync?.status === 'detached' ? t('resourceSyncDetachedBody') : t('resourceSyncBody');
+  const syncDescription = resourceSyncDescription(sync, t);
   const tone = gitReady ? sync?.status === 'unlinked' || sync?.status === 'unborn' ? 'neutral' : sync?.status === 'current' && !sync.dirty && !sync.error && !sync.inProgress ? 'success' : 'warning'
     : item.status === 'ready' ? 'success' : 'warning';
   return <>

@@ -1,7 +1,7 @@
 import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
 import {ResourceController} from '../src/client/resource-controller.ts';
-import {detectedResourceType} from '../src/client/resource-ui.ts';
+import {canUpdateResource, detectedResourceType, resourceSyncDescription} from '../src/client/resource-ui.ts';
 
 const empty = {revision: 'a'.repeat(64), version: 'initial', resources: [], operations: [], canPick: true, pickSource: 'native', canClone: true};
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), {status});
@@ -12,6 +12,29 @@ test('a picked Git working tree defaults to the Git resource type, with or witho
     git: {url: 'https://example.com/repo.git', branch: 'main'}}), 'git');
   assert.equal(detectedResourceType({path: '/tmp/folder', name: 'folder', external: true}), 'local');
   assert.equal(detectedResourceType(undefined), 'local');
+});
+
+test('a repository is only updatable while it is simply behind and nothing else blocks the fast-forward', () => {
+  assert.equal(canUpdateResource({status: 'behind', behind: 3, dirty: false}), true);
+  // Every blocking state keeps the button disabled, so the details can explain it instead of failing late.
+  assert.equal(canUpdateResource({status: 'behind', behind: 3, dirty: true}), false);
+  assert.equal(canUpdateResource({status: 'behind', behind: 3, inProgress: true}), false);
+  assert.equal(canUpdateResource({status: 'behind', behind: 3, phase: 'checking'}), false);
+  assert.equal(canUpdateResource({status: 'behind', behind: 3, error: 'git-sync-failed'}), false);
+  assert.equal(canUpdateResource({status: 'diverged', ahead: 1, behind: 3}), false);
+  assert.equal(canUpdateResource({status: 'current', behind: 0}), false);
+  assert.equal(canUpdateResource(undefined), false);
+});
+
+test('the repository description names the one reason an action is unavailable', () => {
+  const t = ((key: string) => key) as unknown as Parameters<typeof resourceSyncDescription>[1];
+  assert.equal(resourceSyncDescription({status: 'behind', behind: 2, dirty: true}, t), 'resourceSyncDirtyBody');
+  assert.equal(resourceSyncDescription({status: 'diverged', ahead: 1, behind: 2}, t), 'resourceSyncDivergedBody');
+  assert.equal(resourceSyncDescription({status: 'behind', behind: 2, inProgress: true}, t), 'resourceSyncInProgressBody');
+  assert.equal(resourceSyncDescription({status: 'no-upstream'}, t), 'resourceSyncNoUpstreamBody');
+  assert.equal(resourceSyncDescription({status: 'behind', behind: 2, error: 'git-sync-timeout'}, t), 'resourceSyncTimeout');
+  assert.equal(resourceSyncDescription({status: 'behind', behind: 2}, t), 'resourceSyncBody');
+  assert.equal(resourceSyncDescription(undefined, t), 'resourceSyncBody');
 });
 
 test('resource controller retains a successful snapshot on error and ignores late GETs after mutation', async () => {

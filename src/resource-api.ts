@@ -175,11 +175,8 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
     return {revision: status.revision, available: repository !== undefined,
       ...(repository?.branch === undefined ? {} : {branch: repository.branch}),
       ...(repository?.url === undefined ? {} : {url: repository.url}),
-      ...(repository?.sync === undefined ? {} : {sync: {status: repository.sync.status,
-        ...(repository.sync.dirty === undefined ? {} : {dirty: repository.sync.dirty}),
-        ...(repository.sync.ahead === undefined ? {} : {ahead: repository.sync.ahead}),
-        ...(repository.sync.behind === undefined ? {} : {behind: repository.sync.behind}),
-        ...(repository.sync.error === undefined ? {} : {error: repository.sync.error})}}),
+      // The whole sync state travels: the panel disables its actions with the same rules a resource card uses.
+      ...(repository?.sync === undefined ? {} : {sync: repository.sync}),
       entries: mapProjectChanges(changes.files, context)};
   };
   registerRepository('/changes', ['GET', 'POST'], async req => {

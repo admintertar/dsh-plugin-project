@@ -1,5 +1,5 @@
 import {parse} from 'yaml';
-import type {ResourceChangeStatus} from './resource-contract.ts';
+import type {ResourceChangeStatus, ResourceGitSync} from './resource-contract.ts';
 
 /**
  * The project root is a Git repository, but its contents are project assets: tasks, skills,
@@ -38,7 +38,9 @@ export interface ProjectChangesSnapshot {
   available: boolean;
   branch?: string;
   url?: string;
-  sync?: {status: string; dirty?: boolean; ahead?: number; behind?: number; error?: string};
+  /** The project repository's own state. It is the same shape a Git resource reports, so the panel
+   * reuses the resource availability rules instead of inventing a second set. */
+  sync?: ResourceGitSync;
   entries: ProjectChangeEntry[];
 }
 

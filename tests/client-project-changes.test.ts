@@ -46,3 +46,20 @@ test('the changes controller names the repository action it is waiting for', asy
   assert.equal(controller.getSnapshot().action, undefined);
   controller.dispose();
 });
+
+test('the changes controller sends a repository update, so new remote commits can be applied', async () => {
+  const bodies: Record<string, unknown>[] = []; const gate = deferred();
+  const controller = new ProjectChangesController(async (_input, init) => {
+    const body = init?.body === undefined ? undefined : JSON.parse(String(init.body)) as Record<string, unknown>;
+    if (body !== undefined) {bodies.push(body); await gate.promise;}
+    return new Response(JSON.stringify(body === undefined ? snapshot : {accepted: true}), {status: 200, headers: {'content-type': 'application/json'}});
+  });
+  await controller.refresh();
+  const updating = controller.sync('update', snapshot.revision);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(controller.getSnapshot().action, 'update');
+  gate.resolve();
+  assert.equal(await updating, true);
+  assert.deepEqual(bodies, [{action: 'update', expectedRevision: snapshot.revision}]);
+  controller.dispose();
+});

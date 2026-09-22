@@ -52,6 +52,21 @@ export function resourceSyncLabel(sync: ResourceGitSync | undefined, t: Capabili
   if (sync?.dirty) return t('resourceSyncDirty');
   return t(syncLabels[sync?.status ?? 'unchecked'], {count: sync?.ahead ?? 0});
 }
+/**
+ * Why the repository is in its current state. A disabled action explains itself with this sentence,
+ * so a card and the project repository details never disagree about the same state.
+ */
+export function resourceSyncDescription(sync: ResourceGitSync | undefined, t: CapabilityTranslate): string {
+  if (sync?.error) return resourceErrorText(sync.error, t);
+  if (sync?.status === 'unlinked') return t('resourceSyncUnlinkedBody');
+  if (sync?.status === 'unborn') return t('resourceSyncUnbornBody');
+  if (sync?.status === 'no-upstream') return t('resourceSyncNoUpstreamBody');
+  if (sync?.inProgress) return t('resourceSyncInProgressBody');
+  if (sync?.status === 'diverged') return t('resourceSyncDivergedBody');
+  if (sync?.dirty) return t('resourceSyncDirtyBody');
+  if (sync?.status === 'detached') return t('resourceSyncDetachedBody');
+  return t('resourceSyncBody');
+}
 export function canCheckResource(item: ManagedResource): boolean {
   const sync = item.git?.sync;
   return item.type === 'git' && item.status === 'ready' && Boolean(item.url)

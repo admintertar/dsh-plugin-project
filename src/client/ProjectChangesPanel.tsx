@@ -1,11 +1,11 @@
 import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {Button, IconBranchOutline16, IconRefreshOutline16, IconRightUpOutline16, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
+import {Button, IconBranchOutline16, IconDownloadOutline16, IconRefreshOutline16, IconRightUpOutline16, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ResourceBranches} from '../resource-contract.ts';
 import type {ProjectChangeEntry, ProjectChangeKind, ProjectChangesSnapshot} from '../project-changes.ts';
 import type {ProjectLocaleKey} from '../locales.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectCheckbox, ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
-import {resourceErrorText} from './resource-ui.ts';
+import {canUpdateResource, resourceErrorText, resourceSyncDescription, resourceSyncLabel} from './resource-ui.ts';
 import type {ProjectChangesController, RepositorySyncAction} from './project-changes-controller.ts';
 
 const kindOrder: readonly ProjectChangeKind[] = ['task', 'skill', 'memory', 'mcp', 'file'];
@@ -31,19 +31,19 @@ function suggestMessage(entries: readonly ProjectChangeEntry[], t: Translate): s
   return t('changeCommitMixed', {kinds: kinds.map(kind => t(kindKeys[kind])).join(t('changeKindSeparator'))});
 }
 
+/**
+ * The project repository reports the same state a Git resource does, so the badge reuses the
+ * resource wording instead of keeping a second, easily incomplete set of cases.
+ */
 function syncSummary(data: ProjectChangesSnapshot, t: CapabilityTranslate): {label: string; tone: 'neutral' | 'success' | 'warning'} {
-  const tr = t as unknown as Translate;
   const sync = data.sync;
-  if (!sync) return {label: tr('resourceSyncUnchecked'), tone: 'neutral'};
-  if (sync.error) return {label: resourceErrorText(sync.error, t), tone: 'warning'};
-  if (sync.status === 'error') return {label: tr('resourceSyncError'), tone: 'warning'};
-  if (sync.status === 'no-upstream') return {label: tr('resourceSyncNoUpstream'), tone: 'warning'};
-  if (sync.status === 'detached') return {label: tr('resourceSyncDetached'), tone: 'warning'};
-  if (sync.behind) return {label: tr('resourceSyncBehind', {count: sync.behind}), tone: 'warning'};
-  if (sync.ahead) return {label: tr('resourceSyncAhead', {count: sync.ahead}), tone: 'warning'};
-  if (sync.status === 'unchecked') return {label: tr('resourceSyncUnchecked'), tone: 'neutral'};
-  if (sync.dirty) return {label: tr('resourceSyncDirty'), tone: 'warning'};
-  return {label: tr('resourceSyncCurrent'), tone: 'success'};
+  const label = resourceSyncLabel(sync, t);
+  if (!sync || sync.phase || sync.status === 'unlinked' || sync.status === 'unborn' || sync.status === 'unchecked') {
+    return {label, tone: 'neutral'};
+  }
+  // Only a clean, up-to-date branch is good news; everything else asks the user to do something.
+  const settled = sync.status === 'current' && !sync.dirty && !sync.inProgress && !sync.error;
+  return {label, tone: settled ? 'success' : 'warning'};
 }
 
 function ChangeCard({entry, checked, disabled, onToggle, t}: {entry: ProjectChangeEntry; checked: boolean; disabled: boolean;
@@ -71,11 +71,18 @@ function RepositoryDetails({open, root, data, branches, controller, busy, action
   data: ProjectChangesSnapshot; branches?: ResourceBranches; controller: ProjectChangesController; busy: boolean;
   action?: 'commit' | RepositorySyncAction; onClose(): void; t: CapabilityTranslate}) {
   const summary = syncSummary(data, t);
+  // The project repository obeys the same rules as a Git resource, so the fast-forward button uses the
+  // resource availability rule and the details explain what still blocks it.
+  const updatable = canUpdateResource(data.sync);
+  const behind = (data.sync?.behind ?? 0) > 0;
   return <ProjectScrollableModal open={open} title={t('changeRepositoryDetails')} closeLabel={t('close')} onClose={onClose}
     footer={<>
       <Button variant="outline" disabled={busy}
         icon={action === 'check' ? <span className="project-spinner" /> : <IconRefreshOutline16 />}
         onClick={() => void controller.sync('check', data.revision)}>{action === 'check' ? t('resourceSyncChecking') : t('resourceSyncCheck')}</Button>
+      {(behind || action === 'update') && <Button variant="outline" disabled={busy || !updatable}
+        icon={action === 'update' ? <span className="project-spinner" /> : <IconDownloadOutline16 />}
+        onClick={() => void controller.sync('update', data.revision)}>{action === 'update' ? t('resourceSyncUpdating') : t('resourceSyncUpdate')}</Button>}
       {(data.sync?.ahead ?? 0) > 0 && <Button variant="outline" disabled={busy}
         icon={action === 'push' ? <span className="project-spinner" /> : <IconRightUpOutline16 />}
         onClick={() => void controller.sync('push', data.revision)}>{action === 'push' ? t('resourceSyncPushing') : t('resourceSyncPush')}</Button>}
@@ -92,7 +99,7 @@ function RepositoryDetails({open, root, data, branches, controller, busy, action
               onChange={value => {if (value && value !== branches.current) void controller.sync('switch', data.revision, value);}} />
           : <span>{data.branch ?? t('resourceSyncDetached')}</span>}
       </ProjectSettingRow>
-      <ProjectSettingRow title={t('resourceSyncStatus')} layout="stacked"><span role="status">{summary.label}</span></ProjectSettingRow>
+      <ProjectSettingRow title={t('resourceSyncStatus')} description={resourceSyncDescription(data.sync, t)} layout="stacked"><span role="status">{summary.label}</span></ProjectSettingRow>
       <ProjectSettingRow title={t('changeCommitHint')} layout="stacked"><span className="project-setting-description">{t('changeCommitHintBody')}</span></ProjectSettingRow>
     </div>
   </ProjectScrollableModal>;
