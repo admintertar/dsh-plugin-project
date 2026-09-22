@@ -222,7 +222,6 @@ export function ProjectChangesPanel({controller, root, t, handoffConflict}: {con
               </div>
             </section>;
           })}
-          {state.commitError && <p role="alert" className="project-error">{resourceErrorText(state.commitError, t)}</p>}
         </>}
     <RepositoryDetails open={details} root={root} data={data} branches={branches} controller={controller} busy={state.pending}
       action={state.action} onUpdate={() => void applyUpdate()} onClose={() => setDetails(false)} t={t} />
