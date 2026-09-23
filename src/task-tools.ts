@@ -1,10 +1,11 @@
 import type {Context} from '@deepseek-ai/cordis';
 import type {Session} from '@deepseek-ai/dsh-session';
 import type {} from '@deepseek-ai/dsh-tool-present/types';
-import {defineTool, type InferValue, type ParameterSchemaSpec, type ToolRunContext, type ValueSchemaSpec} from '@deepseek-ai/dsh-tools';
+import {defineTool, type ToolRunContext} from '@deepseek-ai/dsh-tools';
 import {z} from 'zod';
 import {createProjectTaskSchema, taskIdSchema, taskStatusSchema, updateProjectTaskSchema,
-  type TaskMutationResult, type TaskRecord, type TaskWriteSource} from './task-contract.ts';
+  type TaskMutationResult, type TaskWriteSource} from './task-contract.ts';
+import {OUTPUT_SCHEMA, jsonObject, parameters, renderValue} from './tool-schema.ts';
 import type {ProjectTaskStore} from './tasks.ts';
 
 const listInputSchema = z.object({
@@ -22,37 +23,6 @@ const getInputSchema = z.object({
 });
 const updateInputSchema = updateProjectTaskSchema.extend({id: taskIdSchema});
 
-type SchemaNode = {type?: string; properties?: Record<string, SchemaNode>; required?: string[];
-  additionalProperties?: boolean; items?: SchemaNode; anyOf?: SchemaNode[]; oneOf?: SchemaNode[];
-  enum?: unknown[]; const?: unknown; description?: string};
-
-/** Project the shared contract into DSH's supported DSL; Zod enforces its size/refinement rules at execution. */
-function valueSpec(node: SchemaNode): ValueSchemaSpec {
-  const union = node.anyOf ?? node.oneOf;
-  if (union) {
-    if (union.length < 2) throw new Error('Task schema union must contain at least two alternatives');
-    return {oneOf: union.map(valueSpec) as [ValueSchemaSpec, ValueSchemaSpec, ...ValueSchemaSpec[]]};
-  }
-  if (node.type === 'object') return {type: 'object', additionalProperties: false, properties: parameterSpec(node)};
-  if (node.type === 'array') return {type: 'array', items: node.items ? valueSpec(node.items) : undefined};
-  if (!['string', 'integer', 'number', 'boolean', 'null'].includes(node.type ?? '')) {
-    throw new Error(`Unsupported Task schema type: ${node.type}`);
-  }
-  return {type: node.type, ...(node.enum ? {enum: node.enum} : {}),
-    ...('const' in node ? {const: node.const} : {})} as ValueSchemaSpec;
-}
-
-function parameterSpec(node: SchemaNode): ParameterSchemaSpec {
-  return Object.fromEntries(Object.entries(node.properties ?? {}).map(([name, child]) => [name, {
-    ...valueSpec(child), ...(node.required?.includes(name) ? {required: true as const} : {}),
-    ...(child.description ? {description: child.description} : {}),
-  }]));
-}
-
-function parameters(schema: z.ZodType): ParameterSchemaSpec {
-  return parameterSpec(z.toJSONSchema(schema, {io: 'input'}) as SchemaNode);
-}
-
 const WRITE_GUIDANCE = 'Use a project-unique stable operationId for each logical write and reuse the identical request on retry, even from another conversation. Read revision before updating; reread on conflicts.';
 const CREATE_DESCRIPTION = 'Create an independent project work record after discovering existing tasks. Investigation and design count as work; do not create one per message/build. Only title/objective and operationId are required. The result directory identifies tasks/<directory>/task.md and artifacts/. Conversations are optional provenance, never task ownership. ' + WRITE_GUIDANCE;
 const LIST_DESCRIPTION = 'Discover independent project tasks by title/objective, status and archive filter. Bounded summaries, default 20 maximum 50. No conversation binding.';
@@ -61,12 +31,7 @@ const UPDATE_DESCRIPTION = 'Update an explicit task id. Save meaningful decision
   + 'File artifacts must exist at paths relative to this task directory, starting artifacts/. Optionally provide source:{resourceId,path} to copy a report, SQL, image or other deliverable into that path; source without resourceId is project-relative. Never guess resource identity. Code changes use type:commit with repository URL and full commit hash; do not copy source code. removeArtifacts removes specified file paths from the index; files remain. References with the same id are corrected/replaced; removeReferences removes ids not used by history/handoff. '
   + 'Changing objective/scope/constraints/outOfScope/criteria requires changeReason plus a scope entry with reason; Host versions criteria. Verification must name current criterionId/version. Completion requires summary, current passed evidence for required criteria, a completion node referencing verificationEntryIds, and explicitly refreshed handoff (null if none). State remaining limitations in summary/questions; design completion does not mean implemented functionality. Reopening/cancelling requires changeReason. ' + WRITE_GUIDANCE;
 
-function renderValue(_args: unknown, value: unknown) {return [{type: 'text' as const, text: JSON.stringify(value)}];}
-
-// Strip optional undefined members before DSH checks the lossless JSON boundary.
-const OUTPUT_SCHEMA = {type: 'object', additionalProperties: true} as const;
-function jsonObject(value: object): InferValue<typeof OUTPUT_SCHEMA> {return JSON.parse(JSON.stringify(value)) as InferValue<typeof OUTPUT_SCHEMA>;}
-function writeResult(value: TaskMutationResult): InferValue<typeof OUTPUT_SCHEMA> {
+function writeResult(value: TaskMutationResult) {
   if (!value.task) return jsonObject(value);
   return jsonObject({...value, task: {...value.task, entries: value.task.entries.slice(-20).reverse()},
     totalEntries: value.task.entries.length,

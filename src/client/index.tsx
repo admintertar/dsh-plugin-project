@@ -69,6 +69,8 @@ interface Controller {
   subscribe(listener: () => void): () => void;
   refresh(): Promise<void>;
   saveMemory(id: string, content: string): Promise<void>;
+  createMemory(name: string, content: string): Promise<void>;
+  deleteMemory(id: string): Promise<void>;
   suppressPanelTransition(): void;
   show(panelId: MainPanelId): void;
   start(): Promise<void>;
@@ -175,6 +177,14 @@ export async function apply(ctx: Context): Promise<void> {
       upstream: request.upstream ?? '', ahead: request.ahead ?? 0, behind: request.behind ?? 0}),
     openSession: id => ctx.uiWorkspace.openSession(id as SessionId),
   });
+  // One envelope for every memory mutation; the Host serializes them and returns the new snapshot.
+  const postMemory = async (body: Record<string, unknown>) => {
+    const response = await fetch('/api/project/memory', {method: 'POST', headers: {'content-type': 'application/json'},
+      body: JSON.stringify(body)});
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data?.error === 'string' ? data.error : 'operation-failed');
+    update({project: data, error: undefined});
+  };
   const controller: Controller = {
     continueTask: (task, signal) => continuation.continue(task, signal),
     handoffMergeConflict: (request, signal) => mergeConflicts.handoff(request, signal),
@@ -199,13 +209,9 @@ export async function apply(ctx: Context): Promise<void> {
         if (!current.signal.aborted) update({project: undefined, error: error instanceof Error ? error.message : String(error)});
       }
     },
-    async saveMemory(id, content) {
-      const response = await fetch('/api/project/memory', {method: 'POST', headers: {'content-type': 'application/json'},
-        body: JSON.stringify({action: 'update', id, content})});
-      const data = await response.json();
-      if (!response.ok) throw new Error(typeof data?.error === 'string' ? data.error : 'operation-failed');
-      update({project: data, error: undefined});
-    },
+    async saveMemory(id, content) {await postMemory({action: 'update', id, content});},
+    async createMemory(name, content) {await postMemory({action: 'create', name, content});},
+    async deleteMemory(id) {await postMemory({action: 'delete', id});},
     suppressPanelTransition: panelTransition.suppress,
     show(panelId) {panelTransition.suppress(); ctx.layout.selectPanel(panelId);},
     async start() {
@@ -892,7 +898,8 @@ function ProjectPanel({controller, view, t, renderSlot}: {controller: Controller
     {view === 'overview' && <section><ProjectChangesPanel controller={controller.changes} root={project.root} t={t} handoffConflict={controller.handoffMergeConflict} /></section>}
     {view === 'overview' && <section><div className="project-card-top"><h2>{t('resources')}</h2><Button variant="outline" size="sm" onClick={() => controller.show('project.resources' as MainPanelId)}>{t('resourceManage')}</Button></div><ResourcesOverview controller={controller.resources} resources={project.resources} root={project.root} t={t} /></section>}
     {view === 'resources' && <ResourcesPanel controller={controller.resources} root={project.root} pickDirectory={controller.pickDirectory} t={t} />}
-    {view === 'memory' && <MemoryPanel memory={project.memory} save={controller.saveMemory} t={t} />}
+    {view === 'memory' && <MemoryPanel memory={project.memory} save={controller.saveMemory}
+      create={controller.createMemory} remove={controller.deleteMemory} t={t} />}
     {view === 'tasks' && <TasksPanel openFile={(request, opener) => controller.taskSidebar.open(request, opener)} controller={controller.capabilities} t={t} openSession={id => controller.open(id as SessionId)} startSession={() => {void controller.start();}} sessionTitle={controller.sessionTitle} canOpenSession={controller.canOpenSession} continueTask={controller.continueTask} />}
     {view === 'skills' && <SkillsPanel controller={controller.capabilities} t={t} pickDirectory={controller.pickDirectory} />}
     {view === 'tools' && <ToolsPanel controller={controller.capabilities} t={t} />}

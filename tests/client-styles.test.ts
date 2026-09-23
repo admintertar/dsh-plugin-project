@@ -19,6 +19,8 @@ test('memory styles provide a responsive Markdown source editor', () => {
   assert.match(styles, /\.project-memory-editor textarea/);
   assert.match(styles, /min-height:300px/);
   assert.match(styles, /resize:vertical/);
+  assert.match(styles, /\.project-memory-actions\{/);
+  assert.match(styles, /\.project-memory-create-source\{min-height:220px\}/);
 });
 
 test('Skill cards share the compact MCP grid and card chrome', () => {

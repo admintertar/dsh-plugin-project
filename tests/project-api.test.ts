@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {createServer, request, type IncomingMessage} from 'node:http';
 import {once} from 'node:events';
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {parse, stringify} from 'yaml';
@@ -18,7 +18,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools';
 import {createScope, bindScopeParent} from '@deepseek-ai/dsh-scope';
 import type {WebRoute} from '@deepseek-ai/dsh-host-webserver';
 import {createProjectFile} from '../src/project-files.ts';
-import {readProject, updateProjectMemory} from '../src/project.ts';
+import {createProjectMemory, deleteProjectMemory, readProject, updateProjectMemory} from '../src/project.ts';
 import {ProjectTaskStore} from '../src/tasks.ts';
 import {ProjectSkillService} from '../src/project-skills.ts';
 import {ProjectMcpConfigStore, type ProjectMcpServer} from '../src/project-mcp-config.ts';
@@ -74,8 +74,11 @@ async function fixture(mount: ProjectMcpMount = async () => ({toolNames: ['fixtu
   const skills = new ProjectSkillService(ctx, read(), {watch: false});
   const mcpStore = new ProjectMcpConfigStore(read());
   const mcp = new ProjectMcpRuntime(ctx, mcpStore, {mount});
-  const closeApi = registerProjectApi(ctx, read, {tasks: () => tasks, skills, mcpStore, mcp},
-    (id, content) => updateProjectMemory(manifest, id, content));
+  const closeApi = registerProjectApi(ctx, read, {tasks: () => tasks, skills, mcpStore, mcp}, {
+    create: input => createProjectMemory(manifest, input),
+    update: (id, content) => updateProjectMemory(manifest, id, content),
+    delete: id => deleteProjectMemory(manifest, id),
+  });
   const headers = {authorization: 'fixture', origin, 'content-type': 'application/json'};
   const get = (path: string) => fetch(origin + '/api/project/' + path, {headers});
   const post = (path: string, body: unknown) => fetch(origin + '/api/project/' + path, {method: 'POST', headers, body: JSON.stringify(body)});
@@ -143,6 +146,42 @@ test('project api saves Markdown memory and enforces authentication, identity an
     assert.equal(oversized.status, 413);
     assert.deepEqual(await oversized.json(), {error: 'body-too-large'});
     assert.equal(readFileSync(f.memoryPath, 'utf8'), markdown);
+  } finally {await f.cleanup();}
+});
+
+test('project api creates and deletes declared memory documents with UTF-8 byte limits', async () => {
+  const f = await fixture();
+  try {
+    // A declared id stays unique, and every create names its own stable path.
+    const duplicate = await f.post('memory', {action: 'create', id: 'guide', name: 'Other', content: 'nope'});
+    assert.equal(duplicate.status, 422);
+    assert.deepEqual(await duplicate.json(), {error: 'operation-failed'});
+
+    const created = await f.post('memory', {action: 'create', id: 'decisions', name: 'Decisions', content: '# Decisions\n'});
+    assert.equal(created.status, 200);
+    const afterCreate = await created.json();
+    assert.deepEqual(afterCreate.memory.map((item: {id: string}) => item.id), ['guide', 'decisions']);
+    assert.equal(readFileSync(join(f.root, 'memory', 'decisions.md'), 'utf8'), '# Decisions\n');
+    assert.match(readFileSync(f.manifest, 'utf8'), /id: decisions/);
+
+    const noIdentity = await f.post('memory', {action: 'create', name: 'Anonymous', content: 'x'});
+    assert.equal(noIdentity.status, 200);
+    const anonymous = (await noIdentity.json()).memory.find((item: {name: string}) => item.name === 'Anonymous');
+    assert.ok(anonymous.id);
+    assert.equal(anonymous.path, `memory/${anonymous.id}.md`);
+
+    const traversal = await f.post('memory', {action: 'create', id: 'escape', name: 'Escape', content: 'x', path: 'memory/../escape.md'});
+    assert.equal(traversal.status, 422);
+    const oversized = await f.post('memory', {action: 'create', name: 'Huge', content: '中'.repeat(22_000)});
+    assert.equal(oversized.status, 413);
+    assert.deepEqual(await oversized.json(), {error: 'body-too-large'});
+
+    const removed = await f.post('memory', {action: 'delete', id: 'decisions'});
+    assert.equal(removed.status, 200);
+    assert.deepEqual((await removed.json()).memory.map((item: {id: string}) => item.id), ['guide', anonymous.id]);
+    assert.equal(existsSync(join(f.root, 'memory', 'decisions.md')), false);
+    assert.doesNotMatch(readFileSync(f.manifest, 'utf8'), /id: decisions/);
+    assert.equal((await f.post('memory', {action: 'delete', id: 'decisions'})).status, 422);
   } finally {await f.cleanup();}
 });
 

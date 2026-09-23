@@ -4,7 +4,7 @@ import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync,
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { stringify } from 'yaml';
-import { projectContext, readProject, updateProjectMemory } from '../src/project.ts';
+import { projectContext, readProject, createProjectMemory, deleteProjectMemory, updateProjectMemory } from '../src/project.ts';
 import {Context} from '@deepseek-ai/cordis';
 import SkillRegistry from '@deepseek-ai/dsh-skill';
 import {ProjectTaskStore} from '../src/tasks.ts';
@@ -168,6 +168,77 @@ test('memory edits enforce UTF-8 document and aggregate byte limits before writi
     assert.equal(readFileSync(first, 'utf8'), 'first');
     assert.throws(() => updateProjectMemory(f.manifest, 'first', 'x'.repeat(64_000)), /128 KB/);
     assert.equal(readFileSync(first, 'utf8'), 'first');
+  } finally {f.cleanup();}
+});
+test('memory creation writes the document and its declaration together', () => {
+  const f = fixture();
+  try {
+    f.save();
+    const created = createProjectMemory(f.manifest, {name: 'Release checklist', content: '# Release\n'});
+    assert.deepEqual(created.memory, [{id: 'release-checklist', name: 'Release checklist', path: 'memory/release-checklist.md', content: '# Release\n'}]);
+    assert.equal(readFileSync(join(f.memory, 'release-checklist.md'), 'utf8'), '# Release\n');
+    assert.match(readFileSync(f.manifest, 'utf8'), /path: memory\/release-checklist\.md/);
+
+    // An explicit id and a nested path both land in the manifest verbatim.
+    const explicit = createProjectMemory(f.manifest, {id: 'ops', name: 'Ops', path: 'memory/ops/runbook.md', content: 'run'});
+    assert.deepEqual(explicit.memory[1], {id: 'ops', name: 'Ops', path: 'memory/ops/runbook.md', content: 'run'});
+    assert.equal(readFileSync(join(f.memory, 'ops/runbook.md'), 'utf8'), 'run');
+
+    // Duplicate ids and paths are refused before anything is written.
+    assert.throws(() => createProjectMemory(f.manifest, {id: 'ops', name: 'Again', content: 'x'}), /Duplicate project memory: ops/);
+    assert.throws(() => createProjectMemory(f.manifest, {id: 'other', name: 'Other', path: 'memory/ops/runbook.md', content: 'x'}), /Duplicate project memory path/);
+    assert.throws(() => createProjectMemory(f.manifest, {id: 'bad id', name: 'Bad', content: 'x'}), /Memory ids must start/);
+
+    // An existing file is never overwritten, even when it has no declaration yet.
+    writeFileSync(join(f.memory, 'orphan.md'), 'keep');
+    assert.throws(() => createProjectMemory(f.manifest, {id: 'orphan', name: 'Orphan', content: 'x'}), /already exists/);
+    assert.equal(readFileSync(join(f.memory, 'orphan.md'), 'utf8'), 'keep');
+    assert.deepEqual(readProject(f.manifest).memory.map(item => item.id), ['release-checklist', 'ops']);
+  } finally {f.cleanup();}
+});
+test('memory creation enforces document, aggregate and path limits without side effects', () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.memory, 'big-one.md'), 'x'.repeat(64_000));
+    writeFileSync(join(f.memory, 'big-two.md'), 'y'.repeat(64_000));
+    f.data.memory.push({id: 'big-one', name: 'One', path: 'memory/big-one.md'}, {id: 'big-two', name: 'Two', path: 'memory/big-two.md'});
+    f.save();
+    assert.throws(() => createProjectMemory(f.manifest, {id: 'huge', name: 'Huge', content: '中'.repeat(22_000)}), /64 KB/);
+    assert.throws(() => createProjectMemory(f.manifest, {id: 'more', name: 'More', content: 'x'}), /128 KB/);
+    assert.equal(existsSync(join(f.memory, 'more.md')), false);
+    assert.throws(() => createProjectMemory(f.manifest, {name: '   ', content: 'x'}), /1–160 characters/);
+    for (const path of ['guide.md', 'memory//x.md', 'memory/./x.md', 'memory\\x.md', join(f.memory, 'x.md'), 'C:/memory/x.md', 'memory/../x.md']) {
+      assert.throws(() => createProjectMemory(f.manifest, {id: 'bad', name: 'Bad', path, content: 'x'}), /relative to the project root under memory/);
+    }
+    assert.equal(readProject(f.manifest).memory.length, 2);
+  } finally {f.cleanup();}
+});
+test('memory creation refuses a memory directory that is a symlink', () => {
+  const f = fixture();
+  try {
+    mkdirSync(join(f.root, 'elsewhere'));
+    rmSync(f.memory, {recursive: true});
+    symlinkSync(join(f.root, 'elsewhere'), f.memory, 'dir');
+    f.save();
+    assert.throws(() => createProjectMemory(f.manifest, {id: 'x', name: 'X', content: 'y'}), /real project directory/);
+  } finally {f.cleanup();}
+});
+test('memory deletion removes the declaration and only an unshared document', () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.memory, 'one.md'), 'one');
+    writeFileSync(join(f.memory, 'shared.md'), 'shared');
+    f.data.memory.push({id: 'one', name: 'One', path: 'memory/one.md'},
+      {id: 'shared-a', name: 'Shared A', path: 'memory/shared.md'},
+      {id: 'shared-b', name: 'Shared B', path: 'memory/shared.md'});
+    f.save();
+    assert.deepEqual(deleteProjectMemory(f.manifest, 'one').memory.map(item => item.id), ['shared-a', 'shared-b']);
+    assert.equal(existsSync(join(f.memory, 'one.md')), false);
+    assert.deepEqual(deleteProjectMemory(f.manifest, 'shared-a').memory.map(item => item.id), ['shared-b']);
+    assert.equal(readFileSync(join(f.memory, 'shared.md'), 'utf8'), 'shared');
+    deleteProjectMemory(f.manifest, 'shared-b');
+    assert.equal(existsSync(join(f.memory, 'shared.md')), false);
+    assert.throws(() => deleteProjectMemory(f.manifest, 'missing'), /Unknown project memory/);
   } finally {f.cleanup();}
 });
 test('an invalid local binding is not silently ignored', () => {

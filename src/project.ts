@@ -1,8 +1,8 @@
-import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { parse } from 'yaml';
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { parse, stringify } from 'yaml';
 import { z } from 'zod';
-import {atomicWriteFile} from './atomic-file.ts';
+import {atomicWriteFile, exclusiveAtomicWriteFile} from './atomic-file.ts';
 import { projectFilePaths } from './project-files.ts';
 import {recoverResourceTransaction, within} from './resource-files.ts';
 import {validResourceUrl} from './resource-contract.ts';
@@ -65,18 +65,42 @@ function boundedText(path: string, bytes: number): string {
 }
 
 /** Memory uses portable Project-root paths, confined to the real memory/ directory. */
-function memoryFile(root: string, item: {id: string; path: string}): string {
+function memoryPath(root: string, item: {id: string; path: string}): string {
   const parts = item.path.split('/');
   if (parts[0] !== 'memory' || parts.length < 2 || /[\\\u0000-\u001f\u007f]/.test(item.path)
     || parts.some(part => !part || part === '.' || part === '..')) {
     throw new Error(`Memory paths must be relative to the project root under memory/: ${item.id}`);
   }
   const directory = resolve(root, 'memory');
-  const path = realpathSync(resolve(root, item.path));
+  const path = resolve(root, item.path);
+  if (!within(directory, path)) throw new Error(`Memory is outside the project memory directory: ${item.id}`);
+  return path;
+}
+
+/** Resolve a declared document that already exists, refusing any symlink that leaves memory/. */
+function memoryFile(root: string, item: {id: string; path: string}): string {
+  const directory = resolve(root, 'memory');
+  const path = realpathSync(memoryPath(root, item));
   if (realpathSync(directory) !== directory || !within(directory, path)) {
     throw new Error(`Memory is outside the project memory directory: ${item.id}`);
   }
   return path;
+}
+
+/** Create memory/ itself before the first document, never through an existing symlink. */
+function memoryDirectory(root: string): string {
+  const directory = resolve(root, 'memory');
+  const info = lstatSync(directory, {throwIfNoEntry: false});
+  if (info?.isSymbolicLink()) throw new Error('Memory must be a real project directory');
+  if (info && !info.isDirectory()) throw new Error('Memory must be a directory');
+  mkdirSync(directory, {recursive: true, mode: 0o755});
+  if (realpathSync(directory) !== directory) throw new Error('Memory must be a real project directory');
+  return directory;
+}
+
+/** Turn a display name into a stable manifest id when the caller does not supply one. */
+function memorySlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[^a-z0-9]+|-+$/g, '').slice(0, 48) || 'memory';
 }
 
 /** Read the portable definition and optional machine-local resource bindings. */
@@ -142,6 +166,88 @@ export function updateProjectMemory(manifestPath: string, memoryId: string, cont
   const info = statSync(path);
   if (!info.isFile()) throw new Error(`Memory is not a file: ${memoryId}`);
   atomicWriteFile(path, content, info.mode & 0o777, true);
+  return readProject(canonicalManifest);
+}
+
+export interface MemoryCreateInput {id?: string; name: string; content: string; path?: string}
+
+/** Add one declared Markdown memory document, creating both the file and its manifest entry. */
+export function createProjectMemory(manifestPath: string, input: MemoryCreateInput): ProjectView {
+  const name = input.name.trim();
+  if (!name || name.length > 160) throw new Error('Project memory names must be 1–160 characters');
+  const contentBytes = Buffer.byteLength(input.content);
+  if (contentBytes > 64_000) throw new Error('Project memory document exceeds the 64 KB limit');
+  if (input.id !== undefined && !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(input.id)) {
+    throw new Error(`Memory ids must start with a letter or digit and use only letters, digits, - and _: ${input.id}`);
+  }
+
+  // Validate the declaration shape first so a rejected path never depends on the byte budget.
+  const current = readProject(manifestPath);
+  const {manifest: canonicalManifest, root} = projectFilePaths(manifestPath);
+  const manifest = manifestSchema.parse(parse(boundedText(canonicalManifest, 256_000)));
+  if (manifest.memory.length >= 100) throw new Error('Project memory supports at most 100 documents');
+  const taken = new Set(manifest.memory.map(item => item.id));
+  if (input.id !== undefined && taken.has(input.id)) throw new Error(`Duplicate project memory: ${input.id}`);
+  const directory = resolve(root, 'memory');
+  let id = input.id;
+  if (id === undefined) {
+    const base = memorySlug(name);
+    let candidate = base;
+    let suffix = 2;
+    while (taken.has(candidate) || (input.path === undefined && existsSync(resolve(directory, `${candidate}.md`)))) {
+      candidate = `${base.slice(0, 60)}-${suffix++}`;
+    }
+    id = candidate;
+  }
+
+  const item = {id, name, path: input.path ?? `memory/${id}.md`};
+  const target = memoryPath(root, item);
+  if (manifest.memory.some(candidate => candidate.path === item.path)) throw new Error(`Duplicate project memory path: ${item.path}`);
+  if (existsSync(target)) throw new Error(`Memory document already exists: ${item.path}`);
+
+  // Read every document before writing so a failed budget check leaves no partial asset.
+  const totalBytes = current.memory.reduce((total, entry) => total + Buffer.byteLength(entry.content), 0) + contentBytes;
+  if (totalBytes > 128_000) throw new Error('Project memory exceeds the 128 KB context limit');
+
+  memoryDirectory(root);
+  mkdirSync(dirname(target), {recursive: true, mode: 0o755});
+  const parent = realpathSync(dirname(target));
+  if (realpathSync(directory) !== directory || !within(directory, parent)) {
+    throw new Error(`Memory is outside the project memory directory: ${id}`);
+  }
+
+  // The file is committed first and removed again if the declaration cannot follow,
+  // so a manifest entry never points at a missing document.
+  exclusiveAtomicWriteFile(target, input.content, 0o644);
+  try {
+    atomicWriteFile(canonicalManifest, stringify({...manifest, memory: [...manifest.memory, item]}),
+      statSync(canonicalManifest).mode & 0o777, true);
+  } catch (error) {
+    try {unlinkSync(target);} catch { /* keep the orphan for manual review rather than masking the failure */ }
+    throw error;
+  }
+  return readProject(canonicalManifest);
+}
+
+/** Remove one declaration and, when nothing else declares it, its document file. */
+export function deleteProjectMemory(manifestPath: string, memoryId: string): ProjectView {
+  const current = readProject(manifestPath);
+  const previous = current.memory.find(item => item.id === memoryId);
+  if (previous === undefined) throw new Error(`Unknown project memory: ${memoryId}`);
+
+  const {manifest: canonicalManifest, root} = projectFilePaths(manifestPath);
+  const manifest = manifestSchema.parse(parse(boundedText(canonicalManifest, 256_000)));
+  const remaining = manifest.memory.filter(item => item.id !== memoryId);
+  if (remaining.length === manifest.memory.length) throw new Error(`Unknown project memory: ${memoryId}`);
+  atomicWriteFile(canonicalManifest, stringify({...manifest, memory: remaining}),
+    statSync(canonicalManifest).mode & 0o777, true);
+
+  if (!remaining.some(item => item.path === previous.path)) {
+    // An unresolvable path (missing file, symlink outside memory/) stays untouched.
+    let target: string | undefined;
+    try {target = memoryFile(root, {id: previous.id, path: previous.path});} catch {target = undefined;}
+    if (target !== undefined) unlinkSync(target);
+  }
   return readProject(canonicalManifest);
 }
 

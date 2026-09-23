@@ -21,7 +21,12 @@ interface ProjectCapabilities {
   gitAuth?: ResourceGitAuthentication;
 }
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
-const memoryAction = z.object({action: z.literal('update'), id, content: z.string()}).strict();
+const memoryAction = z.discriminatedUnion('action', [
+  z.object({action: z.literal('update'), id, content: z.string()}).strict(),
+  z.object({action: z.literal('create'), id: id.optional(), name: z.string().min(1).max(160), content: z.string(),
+    path: z.string().min(1).max(1_000).optional()}).strict(),
+  z.object({action: z.literal('delete'), id}).strict(),
+]);
 const skillAction = z.discriminatedUnion('action', [
   z.object({action: z.literal('enable'), name: z.string().min(1).max(64), enabled: z.boolean()}).strict(),
   z.object({action: z.literal('import'), path: z.string().min(1).max(8_000)}).strict(),
@@ -47,8 +52,15 @@ function queue() {
   };
 }
 
+/** Memory writes are serialized; the service owns manifest and document persistence. */
+export interface ProjectMemoryApi {
+  create(input: {id?: string; name: string; content: string; path?: string}): ProjectView;
+  update(id: string, content: string): ProjectView;
+  delete(id: string): ProjectView;
+}
+
 export function registerProjectApi(ctx: Context, read: () => ProjectView, capabilities?: ProjectCapabilities,
-  updateMemory?: (id: string, content: string) => ProjectView): () => Promise<void> {
+  memory?: ProjectMemoryApi): () => Promise<void> {
   let closing = false;
   const assertOpen = () => {if (closing) throw new ProjectHttpError(503, 'project-closing');};
   const register = (path: string, methods: string[], operation: (req: import('node:http').IncomingMessage, signal: AbortSignal) => Promise<unknown>) => {
@@ -73,13 +85,15 @@ export function registerProjectApi(ctx: Context, read: () => ProjectView, capabi
     return {path: await pickDesktopDirectory(ctx)};
   });
   const memoryQueue = queue();
-  if (updateMemory !== undefined) register('memory', ['POST'], async req => {
+  if (memory !== undefined) register('memory', ['POST'], async req => {
     // JSON escaping can make the request larger than the decoded 64 KB document.
     const action = memoryAction.parse(await readJsonBody(req, 400_000));
     return memoryQueue.run(async () => {
       assertOpen();
-      if (Buffer.byteLength(action.content) > 64_000) throw new ProjectHttpError(413, 'body-too-large');
-      return updateMemory(action.id, action.content);
+      if (action.action !== 'delete' && Buffer.byteLength(action.content) > 64_000) throw new ProjectHttpError(413, 'body-too-large');
+      if (action.action === 'update') return memory.update(action.id, action.content);
+      if (action.action === 'delete') return memory.delete(action.id);
+      return memory.create({id: action.id, name: action.name, content: action.content, path: action.path});
     });
   });
   if (capabilities === undefined) return async () => {closing = true; await memoryQueue.wait();};
@@ -119,7 +133,8 @@ export function registerProjectApi(ctx: Context, read: () => ProjectView, capabi
   });
   register('tools', ['GET'], async req => {
     const catalog = await sessionCapabilities(ctx, read().root, req.url);
-    const projectNames = new Set(['project_task_create', 'project_task_list', 'project_task_get', 'project_task_update', 'project_task_bind']);
+    const projectNames = new Set(['project_task_create', 'project_task_list', 'project_task_get', 'project_task_update', 'project_task_bind',
+      'project_memory_create', 'project_memory_list', 'project_memory_update', 'project_memory_delete']);
     const tools: ProjectToolView[] = catalog.context.kind === 'project' ? [] : catalog.tools.schemas(catalog.scope)
       .map(({name, description}) => ({name, description,
         group: (name.startsWith('mcp__') ? 'mcp' : projectNames.has(name) ? 'project' : 'dsh') as ProjectToolView['group']}))
