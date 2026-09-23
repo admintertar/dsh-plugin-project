@@ -12,11 +12,20 @@ Multi-session write concurrency: product constraints and enforcement points.
    技能、任务、记忆、资产面板、`AGENTS.md` 全部绑定「项目根路径」，一会话一工作树会让项目资产分叉。
 3. 真正缺的不是隔离，而是**写入所有权**：目前 Agent 用裸 git 提交，绕过了 Host 已有的锁、
    `git-index-dirty` 拒绝与 revision 校验（见 §2）。
-4. 落地顺序：**P0 提交守卫** → **P1 Host 提交通道（模型工具）** → **P2 可见性/提示** → **P3 隔离模式（自动 worktree）**。
+4. 机制分层的正确顺序：P0 只交付「可信提交执行器」，**不能宣称不可绕过**——只要通用 Bash 仍能写 `.git`，
+   包装命令就不是「唯一入口」（`tools/pre-execute` 只看得到外层工具参数，看不到脚本/子进程的最终文件效果）。
+   真正的强制点必须是 **Agent 进程不能写 Git metadata、Host 通道在沙箱外提交**；落地二选一：
+   **共享根的 protected-path 沙箱扩展**，或提前落地 **P3-A（会话 cwd = linked worktree）**。
+   P1 Host 通道与 P2 可见性随后补齐，Bash 命令字符串规则只做纵深防御。
 5. 「模型自动用 worktree」不能靠提示模型自觉：DSH 的 `session.header.cwd` 是**创建时冻结的元数据，没有原地切换目录的能力**
    （system prompt 的 `{{cwd}}`、shell 默认 workdir、sandbox root 都由它派生）。产品层只有两条路：**fork 会话**
    （`agents.create` + `meta.cwd`）或**不切 cwd、模型在 worktree 的绝对路径下工作**（§4.4）。
    强制点用官方扩展点 `tools/pre-execute` / `ctx.tools.guard()`，不是写进提示词。
+6. DSH 官方基础组合已经提供 `dsh-fs-observation-policy`：文件工具按 Agent 分别执行 read-before-write + CAS，
+   可直接覆盖 B 类冲突的一部分；但官方明确说明 Bash、formatter、generator 与外部 writer 会绕过这层保护。
+7. 真实 Seatbelt 探针表明：只有**形态 A（会话 cwd = linked worktree）**能借现有 DSH 沙箱阻止
+   `git add/commit` 写 common-dir；形态 B 的沙箱根仍是项目根，裸 Git 可成功。因此若要求机械隔离，P3 应以 A 为默认，
+   B 只能是兼容形态（§2.5、§4.4）。
 
 ## 1. 问题定义
 
@@ -40,6 +49,9 @@ Multi-session write concurrency: product constraints and enforcement points.
 | 单资源互斥 | `resource-sync.ts`：`this.active.set(id, …)` → `git-sync-busy` | 同一资源的并发操作互斥 |
 | 跨 Host 排他锁 | `task-lock.ts` `withTaskWriteLock()` | 文件锁 + PID/hostname 存活检测 + 陈旧锁回收 + 「模糊所有权永不接管」 |
 | 面板资产提交 | `ProjectChangesPanel` → `/changes` | 按资产提交、提交计划预览、（技能索引）精确内容暂存 |
+| DSH 文件观察策略 | `@deepseek-ai/dsh-fs-observation-policy`（`dsh-base` 默认挂载） | 每个 Agent 独立记录读到的版本；未读拒绝覆盖，版本变化以 `FS_STALE_VERSION` 拒绝；底层原子 CAS |
+| DSH 跨能力文件沙箱 | `dsh-fs-sandbox` + `dsh-bash-sandbox` / `dsh-pwsh-sandbox` | 默认 `workspace-write + ask`；文件工具与子进程共用 `SessionHeader.cwd` 写边界；无可用 runner 时 fail-closed |
+| Agent 级工具限制 | `ctx.tools.restrict()` / `ctx.tools.guard()` | 可按 Agent 缩小工具面，并在完整 `tools/pre-execute` waterfall 后做不可被后续监听器放宽的 deny-only 判断 |
 
 缺口：
 
@@ -49,6 +61,10 @@ Multi-session write concurrency: product constraints and enforcement points.
 4. **隔离硬绑定**：壳 `desktop-adapter/index.mjs` 以 `cwd: projectRoot` fork 每项目一个 Host；
    插件 `session-capabilities.ts` 硬校验 `observation.header.cwd !== root → 404 project-session-unavailable`。
    会话级工作目录既不是现在的形态，也不是靠 Agent 建目录能绕过的。
+5. **官方文件 CAS 只覆盖结构化文件工具**：DSH 官方 Agent Teams 决策明确承认 Bash、formatter、generator 与外部 writer
+   会绕过 stale-version fence；`writeScopes` 只是诊断，不是锁，也不授权写入。
+6. **当前沙箱不能保护工作区根内的子路径**：`SandboxExecutionPolicy` 只有一个 `workspaceRoot`；`workspace-write` 允许整个根，
+   没有 `protectedPaths` / exclude。共享主工作树下既要允许源码写入、又要禁止 `.git` 写入，现成策略表达不了。
 
 ## 2.5 DSH 可挂载点与生态先例
 
@@ -97,6 +113,41 @@ Multi-session write concurrency: product constraints and enforcement points.
 3. **`tools/pre-execute` 不能改写工具输入**（官方注释：arguments are already logged and presented；`PreToolDecision` 只有 `allow`/`deny`/`ask`）。
    产品**无法**"悄悄把这次写入重定向进 worktree"，强制只有两种形态：**拒绝 + 指引模型先建工作树**，或 **fork 会话让路径天然就是 worktree**（§4.4 的形态 A）。
 
+### 第二轮调研：官方源码 + 真实沙箱探针（2026-09-23）
+
+#### 文件 CAS 可复用，但裸 Git 必须由进程边界约束
+
+核对范围：项目当前 `0.1.5-rc.2`、registry 的 `0.1.5-rc.3` / `0.1.7-alpha.2`，以及官方主分支
+`00102833`。完整记录见
+`tasks/多会话并发写入约束：提交守卫与 Host 提交通道/artifacts/dsh-second-pass-research.md`。
+
+1. `@deepseek-ai/dsh-base` 已默认挂载 `dsh-fs-observation-policy`、`dsh-fs-sandbox`、
+   `dsh-bash-sandbox` / `dsh-pwsh-sandbox`，新会话默认 `workspace-write + ask`。
+   结构化文件工具已有 read-before-write + CAS：每个 Agent 单独保存观察版本，文件在读取后被另一会话改动时返回
+   `FS_STALE_VERSION`，而不是覆盖。这一机制应直接复用到 C4。
+2. 官方 Agent Teams 决策同时明确写出边界：所有同进程 Agent 共享 checkout；Bash、formatter、generator 和外部 writer
+   绕过文件 stale-version fence；`writeScopes` 只产生 overlap diagnostic，不是锁，也不授权写入。
+3. 官方明确把自动 worktree 排除在 Harness runtime 之外：分支、合并、ignored 文件、工装和清理由 deployment 决定。
+   这印证 P3 必须由本产品/插件持有，不能等待 DSH runtime 自动解决。
+4. 最新 alpha 仍不能改写 `tools/pre-execute` 输入，沙箱仍只有一个 `workspaceRoot`，没有根内 protected/excluded path；
+   `0.1.5-rc.2 → rc.3` 的这些公开类型无变化。升级 DSH 不会自动补上“源码可写、`.git` 只读”的策略。
+5. `tools/pre-execute` 虽能读取 Bash 的外层 `command` 字符串，但看不到 `node -e`、脚本、alias 或其它子进程的最终文件效果。
+   因此“匹配并拒绝 `git add/commit`”只能早失败，不能作为不可绕过的提交边界。
+
+#### 已实证：linked worktree 与 DSH 沙箱的 A/B 形态差异（真实 Seatbelt 探针）
+
+用项目当前 `0.1.5-rc.2` 的真实 `LocalSandboxProvider` 在 macOS Seatbelt 下运行，两个调用均报告
+`enforcement: full`：
+
+| 会话形态 | `workspaceRoot` | 源码写入 | `git add` / `git commit` | 结论 |
+| --- | --- | --- | --- | --- |
+| A：会话 cwd = linked worktree | linked worktree 根 | 成功 | 失败：common-dir 下 `index.lock` 为 `Operation not permitted` | common-dir 在沙箱根外，天然形成 Agent/Host Git metadata 权限分离 |
+| B：会话仍在项目根，以绝对路径操作 worktree | 项目根 | 成功 | **成功**，文件确实进入 linked worktree index | 主 `.git` 与 worktree 都在项目根内；现有 `workspace-write` 不构成提交隔离 |
+
+形态 A 仍有一个残余：worktree 根内的 `.git` 指针文件可以被 Agent 改写。它不会因此取得 common-dir 写权限，
+但会让 checkout 失联；产品需为结构化文件工具拒绝 `.git`，并扩展 Bash 沙箱支持根内 protected path（或提供等价的只读挂载/ACL）。
+Windows 后端当前报告 `partial` enforcement，还必须单独做实机验收。
+
 ### 复用评估结论：现成插件只能借鉴，不能直接依赖（2026-09-23，读源码后）
 
 对 `dsh-task-worktree`（最新 0.4.2，MIT，2026-09-08）逐个核对源码后的结论：**不采用直接依赖，仅借鉴设计；P3 落地时小范围 fork（≈4–5 人日）**。
@@ -121,7 +172,8 @@ Multi-session write concurrency: product constraints and enforcement points.
 - manifest 无跨进程锁 → **多会话并发 create 会互相覆盖**，我们要补锁（复用 §2 的 `withTaskWriteLock` 语义）。
 
 补充结论：**worktree 的独立 index 天然消除"多会话 index 撞车"**——恰是 P0/P1 的痛点之一，所以两者是互补而非替代：
-P3 上线后 P0 守卫仍需要（在同一个 worktree 内裸 `git add -A` 一样会吞掉他人的改动，只是范围小一个数量级）。
+P3 上线后提交执行器仍需要：Agent 沙箱之外的 Host/人类仍能写 index，Host 提交必须继续按声明路径、锁和 revision 校验执行；
+隔离不是对提交语义校验的替代。
 
 其它候选：`FlashingChen/dsh-worktree` 把 `worktree_remove` 做成**模型工具**（违反人类专属收尾），且真装 `@deepseek-ai/*` 依赖（重复基础设施）；
 `frederico-kluser/dsh-worktree-jump` npm 包 404 / private / node ≥ 24 / 需构建，且形态相反（fork 会话把 cwd 移进 worktree）。
@@ -132,10 +184,10 @@ P3 上线后 P0 守卫仍需要（在同一个 worktree 内裸 `git add -A` 一�
 
 | ID | 约束 | 强制点 | 违反行为 |
 | --- | --- | --- | --- |
-| C1 | 提交必须声明路径集合，禁止 `git add -A` / `git add .` | 提交守卫 + 工具 schema（`paths` 必填，≤500，且经 `safeChangePath`） | 拒绝提交，返回 `resource-target-invalid` |
+| C1 | 提交必须声明路径集合，禁止 `git add -A` / `git add .` | Agent 进程不得写 Git metadata；Host 工具 schema（`paths` 必填，≤500，且经 `safeChangePath`） | 拒绝提交，返回 `resource-target-invalid`；裸 Git 在 OS 沙箱层失败 |
 | C2 | 提交前 index 必须干净 | Host（已有）与守卫（新增，CLI 层同样检查） | `git-index-dirty` |
-| C3 | 提交必须在锁内串行执行 | 守卫文件锁；Host 侧 `lockRepository` | 等待或 `git-sync-busy`（不静默并写） |
-| C4 | 不得改写工作树中未暂存的他人改动 | 守卫：提交前后快照工作树 diff 集合，只允许"减少自己的部分" | 中止提交并列出被影响的路径 |
+| C3 | 提交必须在锁内串行执行 | Host 侧 `lockRepository`；可信本地执行器使用同一 common-dir 锁 | 等待或 `git-sync-busy`（不静默并写） |
+| C4 | 不得改写工作树中未暂存的他人改动 | 文件工具复用 `dsh-fs-observation-policy` 的每 Agent read-before-write + CAS；Bash/formatter/generator 只允许在隔离 worktree | `FS_NOT_OBSERVED` / `FS_STALE_VERSION`，或沙箱拒绝；提交前后快照作为补充审计 |
 | C5 | 共享文件（`skills/index.yaml`、`mcp/servers/*.yaml`）必须经 Host 精确暂存 | 已有 `stageSkillIndex` / staged 分支 | 回退到按路径提交前先做归属判定 |
 | C6 | 项目资产仓库禁止 worktree | 文档 + 壳/插件：拒绝把项目根指向 worktree（`git rev-parse --git-common-dir != --git-dir` 时警告） | 打开项目时提示不受支持 |
 | C7 | 提交必须能被审计归属 | 提交记录/回执携带 session 或 operationId（可选 trailer） | 面板显示"来源未声明" |
@@ -149,9 +201,11 @@ P3 上线后 P0 守卫仍需要（在同一个 worktree 内裸 `git add -A` 一�
 
 ## 4. 机制设计
 
-### 4.1 P0 提交守卫（`scripts/commit-guard.mjs`，本地、无运行时依赖）
+### 4.1 P0 提交执行器 + Git metadata 强制边界
 
-形态：一个包装命令，Agent 与人都用它提交，而不是裸 `git commit`。
+`scripts/commit-guard.mjs` 是本地、无运行时依赖的**可信提交执行器**；Agent 与人通过 Host 通道或该执行器提交，
+而不是裸 `git commit`。但包装命令本身不是安全边界：只有当 Agent 进程在 OS 沙箱层不能写 Git metadata 时，
+它才能成为事实上的唯一提交入口。
 
 ```
 node scripts/commit-guard.mjs --message "…" --paths a.ts b.ts [--repository <path>]
@@ -168,7 +222,19 @@ node scripts/commit-guard.mjs --message "…" --paths a.ts b.ts [--repository <p
 7. `git commit --no-verify -m …`（沿用现有约定：跳过 hooks，自建校验在 6 之前完成）；
 8. 输出回执 JSON（提交 hash、文件列表、耗时、锁等待时长），供 Agent 写进任务记录的 `type: commit`。
 
-为什么不做成 git hook：本仓库大量提交带 `--no-verify`，hook 会被绕过；守卫必须是**唯一入口**而非补丁。
+强制边界：
+
+1. **隔离代码仓库**：会话 cwd 指向 linked worktree，`workspace-write` 只授权该 checkout；common-dir 在沙箱根外，
+   Agent 的 `git add/commit/reset/worktree remove` 因无法写 index/refs/objects 而失败，Host 在沙箱外调用提交执行器。
+2. **共享主工作树**：当前 DSH 沙箱没有“根可写、根内 `.git` 只读”的策略，不能把包装脚本声称为不可绕过。
+   P0 若必须覆盖此形态，需要新增跨平台 protected-path 沙箱能力（macOS Seatbelt deny 规则、Linux bwrap/Landlock、
+   Windows ACL 对应实现）或把所有写任务先 fork 到隔离 worktree。
+3. `tools/pre-execute` / `ctx.tools.guard()` 拒绝明显的 Git 写命令，负责早失败与可读诊断；它看不到任意脚本/子进程的
+   最终文件效果，所以只是纵深防御。
+4. worktree 根内的 `.git` 指针文件也必须保护；否则 Agent 虽不能取得 common-dir 写权限，仍能破坏 checkout 关联。
+
+为什么不做成 git hook：本仓库大量提交带 `--no-verify`，hook 会被绕过。真正的唯一入口由**进程写权限 + Host 通道**形成，
+提交执行器承载路径校验、锁和回执，hook 既不是入口也不是安全边界。
 
 ### 4.2 P1 Host 提交通道（模型工具）
 
@@ -203,14 +269,17 @@ shell 默认 workdir、sandbox root 都由它派生，**没有原地切换目录
 | A. fork 到 worktree | 用户（会话创建时）或产品在首个改动前自动执行 | `agents.create` + `meta.cwd = <worktree>`，预设/血缘/seed 照搬 | 新会话要重新带上下文，血缘变复杂 |
 | B. 会话留在原 cwd，工作在 worktree 内发生 | 产品武装隔离模式 + 模型调用 `worktree_create` | 会话头打 branch badge；模型用**绝对路径**在 checkout 内读写；不切会话、不注册 Workspace | 模型可能"忘记"用绝对路径而改到主工作树（§7 危害 1） |
 
-推荐 **B 为默认、A 用于整段任务都要隔离的场景**，且两者都由产品强制而非提示：
+若目标是**机械隔离**，推荐 **A 为默认**；B 仅用于兼容既有会话或暂不改宿主的场景，且产品必须明确标为
+“路径纪律模式”，不能宣称裸 Git 不可绕过。真实 DSH 沙箱探针已证明：A 下 common-dir 写入失败，B 下
+`git -C <worktree> add` 成功（§2.5）。
 
 1. **触发判定**：`agent/session-start` 或用户消息进入时，按规则（是否改动类意图）+ 可选模型判定决定"武装隔离模式"。
 2. **强制点**：`tools/pre-execute` 检查——会话未处于隔离工作树、而工具是写类（`Edit`/`Write`/写操作 `Bash`）且目标仓库允许隔离时，
    返回 `ask`（确认后由产品调 `worktree_create`）或按项目配置直接 `block`；配合 `ctx.tools.guard()` 保持 deny-only 单调。
 3. **目标仓库**：worktree 按**被改文件所属的 git 仓库**创建，不是会话仓库（本项目一个项目根下还有 plugin/shell 两个仓库）。
 4. **人类专属动作**：`finish` / `bring-back` / `remove` 只提供人类命令，模型够不到；产品对主工作树做"分支名 + dirty 状态"提交前后快照校验。
-5. **模型侧规则**：每段工作用 `git -C <worktree>` 绝对路径、首次 `pwd` 校验；禁止导出 `GIT_DIR`/`GIT_WORK_TREE`；禁止在 worktree 内切分支。
+5. **模型侧规则**：A 下文件工具和 shell 默认 cwd 天然位于 worktree，且裸 Git metadata 写被沙箱拒绝；B 下每段工作仍须用
+   `git -C <worktree>` 绝对路径、首次 `pwd` 校验，并禁止导出 `GIT_DIR`/`GIT_WORK_TREE`、禁止切分支，但这些只属于兼容纪律。
 6. **项目资产仓库永久排除**（C6）；worktree 内的技能/任务仍读主工作树，避免项目资产分叉。
 7. **工装**：worktree 内没有 `node_modules`/`dist`/Electron 运行时。可选：共享 Yarn cache、符号链接依赖、或"创建后先跑工装脚本"，
    否则模型进去就构建不了（这是本项目引入隔离模式前必须实测的成本项）。
@@ -219,7 +288,9 @@ shell 默认 workdir、sandbox root 都由它派生，**没有原地切换目录
 9. **形态 A 的宿主改造点**：fork 出的会话 `cwd` 是 worktree 路径，会撞上两处现有约束——
    插件 `session-capabilities.ts` 的 `observation.header.cwd !== root → 404 project-session-unavailable`（须放宽为"属于本项目的已知工作树集合"），
    以及壳"以 `cwd: projectRoot` fork 每项目一个 Host"的假设。`dsh-worktree-jump` 的解法是**把 worktree 注册成 Workspace** 再在其下建会话。
-   形态 B 不需要这些改造（会话 cwd 仍是项目根），代价是模型必须自觉使用绝对路径。
+   形态 B 不需要这些改造（会话 cwd 仍是项目根），但它的 DSH 沙箱根也仍是项目根，因此不能阻止裸 Git。
+10. **权限预设**：隔离会话固定为 `workspace-write + ask`，不得自行切到 `danger-full-access`；任何显式升权都必须由用户审批并在 UI
+    显示将失去 Git metadata 隔离。Windows runner 报告 `partial` 时默认不得据此宣称强隔离。
 
 ## 5. 接口草案（要点）
 
@@ -239,16 +310,22 @@ interface CommitReceipt {
 
 | 阶段 | 交付 | 验收 |
 | --- | --- | --- |
-| P0 | `commit-guard` + 文档 + `AGENT.md`/`git-pitfalls` 增补 | 并发复现：A 会话留下未暂存改动，B 会话用守卫提交 → 必须成功且 A 的改动**仍在工作树**；B 直接 `git add -A` 的场景由 C4 检测拦截 |
+| P0 | `commit-guard` 可信提交执行器 + 明显 Git 写命令早拒绝 + 文档 | 执行器按声明路径、锁与快照提交，失败恢复 index；直接绕过包装器的负例必须被记录为“尚未形成安全边界”，不得把 P0 单独标成不可绕过 |
 | P1 | `project_resource_commit` + 服务提升 | 工具单测（参数/错误码/串行）；原生 smoke：两个会话并发提交，历史顺序确定、无夹带 |
 | P2 | 面板与卡片提示 + 双语文案 | 原生视觉验收（中英、明暗、窄窗、键盘） |
-| P3 | 隔离模式：`worktree_create` 工具 + `tools/pre-execute` 守卫 + 人类专属收尾命令（若走 fork 定制 ≈4–5 人日，不含 Host 通道改造） | 复现「用户说改 xxx → 未进入 worktree 的写入被 `ask`/`block`」；worktree 内完成改动后 `bring-back` 合并、主工作树 dirty 状态不变 |
+| P3（或 P0 protected-path 替代） | 默认 fork 到 worktree + `worktree_create` + protected `.git` + 人类专属收尾命令（原估算 ≈4–5 人日须上调，未含跨平台沙箱改造） | 复现「用户说改 xxx → 隔离会话 cwd 为实际 worktree」；源码写入成功；裸 Git metadata 写失败；Host bring-back 后主工作树原有 dirty 状态不变；macOS/Linux/Windows 分别验收 enforcement；通过后整个方案才可称“唯一提交入口” |
 
 ## 7. 风险与未决问题
 
 - **锁粒度**：按 `--git-common-dir` 串行会连带阻塞无关资源的写入；可接受（写入本来稀疏），但要在回执里暴露 `waitedMs`。
 - **跨进程/跨 app 实例**：文件锁能覆盖；但"谁持有锁"的可见性需要落到锁文件内容，UI 只能尽力展示。
 - **Windows**：`unlink`/`open` 语义与 macOS 不同，锁的陈旧回收需按 `windows-ci-pitfalls` 复验。
+- **Windows 沙箱只报告 `partial` enforcement**：ACL restricted-token 的硬链接与保留的 Everyone 访问是官方记录的边界；
+  在 Windows 实机证明前，不能把“Agent 不能写 common-dir”当成跨平台既成事实。
+- **工作区根内 `.git` 指针可破坏**：形态 A 的 common-dir 在根外，但 linked worktree 的 `.git` 文件在根内；现有
+  `workspace-write` 不支持 protected child path，需新增跨平台策略或让所有结构化写工具显式拒绝并为 Bash 加更低层限制。
+- **权限升高会解除隔离**：`danger-full-access` 绕过 sandbox provider；隔离会话不得静默切换，审批 UI 必须说明
+  Git metadata 将重新可写。
 - **项目资产仓库的"提交即共享"语义**：守卫不应替用户决定提交哪些资产，只保证"提交的东西是声明的"。
 - **是否给提交加 trailer**（会话/operationId）：利于审计，但会让历史与现有提交格式不一致，待确认。
 - **worktree 的工装成本**（node_modules/dist/Electron 运行时）尚无实测数据（§4.4 第 7 条给出可选做法）。
@@ -277,6 +354,9 @@ interface CommitReceipt {
 - 会话边界：`src/session-capabilities.ts`；壳 `src/desktop-adapter/index.mjs`、`src/desktop-adapter/stable/host-entry.mjs`
 - 错误码与文案：`src/resource-contract.ts`、`src/capability-locales.ts`、`src/locales.ts`
 - 面板：`src/client/ProjectChangesPanel.tsx`、`src/client/ResourceCard.tsx`
+- DSH 官方文件 CAS：`@deepseek-ai/dsh-fs-observation-policy`、`@deepseek-ai/dsh-fs-local`
+- DSH 官方跨能力沙箱：`@deepseek-ai/dsh-sandbox-policy`、`@deepseek-ai/dsh-fs-sandbox`、
+  `@deepseek-ai/dsh-bash-sandbox` / `dsh-pwsh-sandbox`、`@deepseek-ai/dsh-sandbox-local`
 
 外部参考：
 
@@ -287,6 +367,8 @@ interface CommitReceipt {
   `dsh-task-worktree` <https://github.com/Letter2025/dsh-task-worktree>、
   `dsh-worktree` <https://github.com/FlashingChen/dsh-worktree>
 - DSH 守卫类插件（`tools/pre-execute` + `ctx.tools.guard()` 的完整实现）— <https://github.com/SparkShieldLab/deepseek-harness-security-guard>
+- DSH 官方 Agent Teams 并发边界（明确 Bash/外部 writer 绕过 CAS，worktree 属于 deployment）—
+  <https://github.com/deepseek-ai/deepseek-harness/blob/master/.agents/notes/implemented/feature/2026-08-05-agent-teams.md>
 - Conductor：Git worktrees 概念 — <https://www.conductor.build/docs/concepts/git-worktrees>
 - DSH 官方扩展 cookbook — <https://deepseek-harness.github.io/deepseek-harness/reference/cookbook/extension-cookbook>
 - 项目侧纪律：`skills/git-pitfalls/SKILL.md`
