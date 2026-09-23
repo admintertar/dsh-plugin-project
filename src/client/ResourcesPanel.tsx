@@ -1,5 +1,5 @@
 import {useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
-import {Button, IconEditOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconTrashOutline16,
+import {Button, IconDownloadOutline16, IconEditOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconTrashOutline16,
   IconWarningOutline16, Input, Modal, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ResourceView} from '../project.ts';
 import type {ResourceInspection, ManagedResource} from '../resource-contract.ts';
@@ -24,8 +24,9 @@ function suggestedName(url: string): string {
   const segment = url.replace(/\/+$/, '').split(/[/:]/).at(-1)?.replace(/\.git$/, '') ?? '';
   try {return decodeURIComponent(segment).replace(/[\\/:\u0000-\u001f]/g, '-').replace(/^\.+$/, '').slice(0, 120);} catch {return '';}
 }
-function IconAction({label, icon, disabled, action}: {label: string; icon: ReactNode; disabled?: boolean; action(event: React.MouseEvent<HTMLButtonElement>): void}) {
-  return <Tooltip label={label} side="top" disabled={disabled}><span className="project-mcp-action-anchor">
+/** `tooltip` explains an action whose label alone cannot carry the reason, and stays readable while the button is disabled. */
+function IconAction({label, tooltip, icon, disabled, action}: {label: string; tooltip?: string; icon: ReactNode; disabled?: boolean; action(event: React.MouseEvent<HTMLButtonElement>): void}) {
+  return <Tooltip label={tooltip ?? label} side="top" disabled={disabled && tooltip === undefined}><span className="project-mcp-action-anchor">
     <Button className="project-mcp-action" size="sm" icon={icon} aria-label={label} disabled={disabled} onClick={action} />
   </span></Tooltip>;
 }
@@ -131,8 +132,11 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
           {item.type === 'git' && item.status === 'ready' && (!item.url || ['unlinked', 'no-upstream'].includes(item.git?.sync?.status ?? '')) &&
             <IconAction label={`${t(item.git?.sync?.status === 'no-upstream' ? 'resourceSetTracking' : 'resourceAssociate')}: ${item.name}`}
               icon={<IconLinkOutline16 />} disabled={locked || !state.data?.canClone} action={event => open(event, 'associate', item)} />}
-          {item.type === 'git' && item.url && item.status !== 'ready' && !item.external && <Button size="sm" disabled={locked || cloneActive || !state.data?.canClone}
-            onClick={event => open(event, 'clone', item)}>{t('resourceClone')}</Button>}
+          {/* A resource that is not ready yet is cloned, not bound: the action matches the icon rows around it
+              and its tooltip states why the directory is missing. */}
+          {item.type === 'git' && item.url && item.status !== 'ready' && !item.external &&
+            <IconAction label={`${t('resourceClone')}: ${item.name}`} tooltip={t('resourceCloneBody')} icon={<IconDownloadOutline16 />}
+              disabled={locked || cloneActive || !state.data?.canClone} action={event => open(event, 'clone', item)} />}
           <IconAction label={`${t('bindResource')}: ${item.name}`} icon={<IconFolderOpenOutline16 />} disabled={locked || !state.data?.canPick} action={event => open(event, 'bind', item)} />
           <IconAction label={`${t('editResource')}: ${item.name}`} icon={<IconEditOutline16 />} disabled={locked} action={event => open(event, 'edit', item)} />
           <IconAction label={`${t('removeResource')}: ${item.name}`} icon={<IconTrashOutline16 />} disabled={locked} action={event => {
