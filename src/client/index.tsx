@@ -34,6 +34,7 @@ import {
 } from './session-browser.ts';
 import {createProjectSessionViewStore} from './session-browser-store.ts';
 import { styles } from './styles.ts';
+import {ProjectScrollbarAutoHide} from './scrollbar-auto-hide.ts';
 import {ProjectCapabilityController} from './controller.ts';
 import {TasksPanel} from './TasksPanel.tsx';
 import {registerTaskPreview} from './task-preview.tsx';
@@ -258,7 +259,10 @@ export async function apply(ctx: Context): Promise<void> {
     const element = document.createElement('style');
     element.textContent = styles;
     document.head.append(element);
-    return () => {disposed = true; request?.abort(); continuation.dispose(); capabilities.dispose(); resources.dispose(); changes.dispose(); panelTransition.dispose(); listeners.clear(); element.remove();};
+    // The plugin owns visibility of its own scrollbars so every page, sidebar
+    // list and long dialog fades them while idle; official surfaces keep theirs.
+    const scrollbars = new ProjectScrollbarAutoHide(document);
+    return () => {disposed = true; request?.abort(); continuation.dispose(); capabilities.dispose(); resources.dispose(); changes.dispose(); panelTransition.dispose(); listeners.clear(); element.remove(); scrollbars.dispose();};
   }, 'project: client lifecycle');
   // The official sidebar remains the sole owner of child-slot declarations,
   // panel metadata, collapse animation and settings/footer contributions.

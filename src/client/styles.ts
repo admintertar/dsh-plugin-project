@@ -1,3 +1,37 @@
+import {
+  PROJECT_SCROLLBAR_SCROLLING_ATTRIBUTE, PROJECT_SCROLL_SURFACE_SELECTORS,
+} from './scrollbar-auto-hide.ts';
+
+/** One selector list per scroll surface, so the idle fade covers the sidebar
+ * list, the page panels, the task panes, the long dialogs and the official
+ * document preview body alike. */
+const scrollSurfaces = (suffix = ''): string => PROJECT_SCROLL_SURFACE_SELECTORS
+  .map(selector => `${selector}${suffix}`).join(',');
+const scrollThumb = (token: string): string =>
+  `background:color-mix(in srgb,var(${token}) calc(var(--project-scrollbar-alpha) * 100%),transparent)`;
+
+/**
+ * The pinned stable ui-theme skins the scrollbar but ships no auto-hide
+ * controller; the shell guide window keeps its own copy on GuideFrame. A real
+ * scroll event marks the element that scrolled, so its thumb shows immediately
+ * and fades 180ms after 800ms of inactivity, while dragging the thumb stays
+ * visible through `:active`. Only visibility changes: overflow, the stable
+ * gutter, content width and the official theme colors stay untouched.
+ * `inherits:true` is load-bearing: the scrollbar pseudo-element takes the alpha
+ * from its own element, and a non-inherited registered property resolves to the
+ * initial value there, which left every thumb transparent. Every scroll surface
+ * still declares its own 0, so a nested container never inherits a parent's 1.
+ */
+const scrollbarIdleStyles = `
+@property --project-scrollbar-alpha{syntax:"<number>";inherits:true;initial-value:0}
+${scrollSurfaces()}{--project-scrollbar-alpha:0;transition:--project-scrollbar-alpha .18s var(--ds-ease-in-out)}
+${scrollSurfaces(`[${PROJECT_SCROLLBAR_SCROLLING_ATTRIBUTE}]`)}{--project-scrollbar-alpha:1;transition-duration:0s}
+${scrollSurfaces('::-webkit-scrollbar-thumb')}{${scrollThumb('--dsh-scrollbar-thumb')}}
+${scrollSurfaces('::-webkit-scrollbar-thumb:hover')}{${scrollThumb('--dsh-scrollbar-thumb-hover')}}
+${scrollSurfaces('::-webkit-scrollbar-thumb:active')}{background:var(--dsh-scrollbar-thumb-hover)}
+@media(prefers-reduced-motion:reduce){${scrollSurfaces()}{transition:none}}
+`;
+
 // DSH owns the palette, typography, controls and theme switching. These rules
 // only arrange the Project surfaces and mirror the official sidebar geometry.
 export const styles = `
@@ -247,4 +281,4 @@ button.project-desktop-switch:focus-visible{outline:2px solid var(--dsw-alias-br
 .project-checkbox input:focus-visible+.project-checkbox-mark{outline:2px solid var(--dsw-alias-label-primary);outline-offset:2px}
 .project-checkbox input:disabled{cursor:not-allowed}
 .project-checkbox input:disabled+.project-checkbox-mark{opacity:.5}
-`;
+${scrollbarIdleStyles}`;

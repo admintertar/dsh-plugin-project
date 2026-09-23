@@ -2,6 +2,7 @@ import {strict as assert} from 'node:assert';
 import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 import {styles} from '../src/client/styles.ts';
+import {PROJECT_SCROLL_SURFACE_SELECTORS} from '../src/client/scrollbar-auto-hide.ts';
 
 test('project styles leave the enhanced sidebar material under Desktop ownership', () => {
   assert.doesNotMatch(styles, /\.dshDesktopSidebarSurface/);
@@ -35,6 +36,26 @@ test('scrollbars reserve stable space inside existing right insets', () => {
   assert.match(styles, /\.project-mcp-tools\{[^}]*overflow-y:auto;[^}]*scrollbar-gutter:stable/);
   assert.match(styles, /\.project-settings-dialog-content>div:last-child\{[^}]*overflow-y:auto;[^}]*scrollbar-gutter:stable;padding-right:calc\(24px - var\(--dsh-scrollbar-width,8px\)\)/);
   assert.doesNotMatch(styles, /\.project-capability-form\{[^}]*overflow-y:/);
+});
+
+test('plugin scroll surfaces fade their themed scrollbar while idle', () => {
+  assert.match(styles, /@property --project-scrollbar-alpha\{syntax:"<number>";inherits:true;initial-value:0\}/);
+  assert.match(styles, /\[data-project-scrolling\]\{--project-scrollbar-alpha:1;transition-duration:0s\}/);
+  assert.match(styles, /::-webkit-scrollbar-thumb\{background:color-mix\(in srgb,var\(--dsh-scrollbar-thumb\) calc\(var\(--project-scrollbar-alpha\) \* 100%\),transparent\)\}/);
+  assert.match(styles, /::-webkit-scrollbar-thumb:hover\{background:color-mix\(in srgb,var\(--dsh-scrollbar-thumb-hover\) calc\(var\(--project-scrollbar-alpha\) \* 100%\),transparent\)\}/);
+  assert.match(styles, /::-webkit-scrollbar-thumb:active\{background:var\(--dsh-scrollbar-thumb-hover\)\}/);
+  assert.match(styles, /@media\(prefers-reduced-motion:reduce\)\{[^{}]*\{transition:none\}\}/);
+});
+
+test('every stable scrollbar gutter is registered with the idle fade', () => {
+  const gutters = [...styles.matchAll(/([^\n{}]+)\{[^\n{}]*scrollbar-gutter:stable[^\n{}]*\}/g)]
+    .map(match => match[1]!.trim());
+  const registered = PROJECT_SCROLL_SURFACE_SELECTORS as readonly string[];
+  assert.equal(gutters.length, registered.length);
+  for (const selector of [...gutters, ...registered]) {
+    assert.ok(registered.includes(selector) && gutters.includes(selector),
+      `scrollbar surface and stable gutter drifted apart: ${selector}`);
+  }
 });
 
 test('long dialogs share the official settings scrolling adapter', () => {
