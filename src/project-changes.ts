@@ -31,6 +31,9 @@ export interface ProjectChangeContext {
   tasks: readonly {directory: string; title: string; artifactCount: number}[];
   mcpWorking?: readonly McpServerSummary[];
   mcpHead?: readonly McpServerSummary[];
+  /** HEAD and worktree text of the shared Skill index, so one switch change can name its Skill. */
+  skillIndexHead?: string;
+  skillIndexWorking?: string;
 }
 export interface ProjectChangesSnapshot {
   revision: string;
@@ -50,6 +53,8 @@ export interface ProjectChangeActionResult extends ProjectChangesSnapshot {
   merge?: RepositoryMergeResult;
 }
 
+/** The shared Skill enable index: one file carries every Skill's switch. */
+const SKILL_INDEX = 'skills/index.yaml';
 /** The retired single declaration file. It is skipped everywhere: migration removes it on open. */
 const MCP_LEGACY_DECLARATION = 'mcp/servers.yaml';
 /** One declaration per file lives under `mcp/servers/`. */
@@ -86,6 +91,35 @@ export function changeSignature(value: unknown): string {
 export interface McpDeclarationFile {path: string; text: string | undefined}
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+/**
+ * The explicit entries of one Skill index document, keyed by Skill name. An absent or empty document
+ * has no explicit entries; `undefined` means the text could not be read as a document at all.
+ */
+function indexEntries(text: string | undefined): Map<string, string> | undefined {
+  if (text === undefined || text.trim() === '') return new Map();
+  try {
+    const document = parse(text) as unknown;
+    if (!isRecord(document) || !isRecord(document.skills)) return new Map();
+    return new Map(Object.entries(document.skills).map(([name, state]) => [name, changeSignature(state)]));
+  } catch {return undefined;}
+}
+
+/**
+ * The Skills whose explicit index entry differs between HEAD and the worktree. `undefined` when the
+ * index cannot be read, because then no change may be attributed to a Skill and the file stays its
+ * own asset. A Skill that is absent is enabled, so a removed entry counts as a change too.
+ */
+export function changedSkillIndexNames(head: string | undefined, working: string | undefined): ReadonlySet<string> | undefined {
+  const before = indexEntries(head);
+  const after = indexEntries(working);
+  if (before === undefined || after === undefined) return undefined;
+  const changed = new Set<string>();
+  for (const name of new Set([...before.keys(), ...after.keys()])) {
+    if (before.get(name) !== after.get(name)) changed.add(name);
+  }
+  return changed;
+}
 
 /**
  * Declarations across every source file. Two shapes are accepted: the legacy file carries
@@ -140,6 +174,9 @@ export function mapProjectChanges(files: readonly ProjectChangeFile[], context: 
       paths: new Set([path]), statuses: [status],
       ...(options.artifacts === undefined ? {} : {artifacts: options.artifacts})});
   };
+  // The shared index is attributed after every Skill directory is known, so a Skill that also changed
+  // on disk keeps its own status and the index only rides along as a supporting path.
+  let indexStatus: ResourceChangeStatus | undefined;
   for (const file of files) {
     const path = normalize(file.path);
     if (!path) continue;
@@ -154,9 +191,9 @@ export function mapProjectChanges(files: readonly ProjectChangeFile[], context: 
       continue;
     }
     if (head === 'skills' && second) {
-      const name = second === 'index.yaml' ? 'index.yaml' : second;
-      collect(`skill:${second}`, 'skill', name, path, file.status,
-        {description: second === 'index.yaml' ? 'skills/index.yaml' : `skills/${second}`});
+      // The index is shared, so it becomes a supporting path of the Skill it describes below.
+      if (path === SKILL_INDEX) {indexStatus = file.status; continue;}
+      collect(`skill:${second}`, 'skill', second, path, file.status, {description: `skills/${second}`});
       continue;
     }
     if (head === 'memory' && second) {
@@ -166,6 +203,21 @@ export function mapProjectChanges(files: readonly ProjectChangeFile[], context: 
       continue;
     }
     collect(`file:${path}`, 'file', path, path, file.status);
+  }
+  // One switch change must not become its own "index.yaml" Skill: the change belongs to the Skill it
+  // names, and only a change that cannot name a Skill stays visible as the index file itself.
+  if (indexStatus !== undefined) {
+    const changed = changedSkillIndexNames(context.skillIndexHead, context.skillIndexWorking);
+    if (changed !== undefined && changed.size > 0) {
+      for (const name of changed) {
+        const existing = collected.get(`skill:${name}`);
+        if (existing === undefined) {
+          collect(`skill:${name}`, 'skill', name, SKILL_INDEX, indexStatus, {description: SKILL_INDEX});
+        } else existing.paths.add(SKILL_INDEX);
+      }
+    } else {
+      collect('skill:index.yaml', 'skill', 'index.yaml', SKILL_INDEX, indexStatus, {description: SKILL_INDEX});
+    }
   }
   // MCP declarations become one entry per server, and each entry owns exactly the file it lives in.
   {

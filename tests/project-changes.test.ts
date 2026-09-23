@@ -6,9 +6,9 @@ import {parse, stringify} from 'yaml';
 import {ResourceCloneManager} from '../src/resource-clones.ts';
 import {ResourceSyncManager} from '../src/resource-sync.ts';
 import {runResourceGit} from '../src/resource-git.ts';
-import {changeSignature, mapProjectChanges, parseMcpServers, safeChangePath} from '../src/project-changes.ts';
+import {changeSignature, changedSkillIndexNames, mapProjectChanges, parseMcpServers, safeChangePath} from '../src/project-changes.ts';
 import {ProjectMcpConfigStore} from '../src/project-mcp-config.ts';
-import {stageSkillIndex} from '../src/project-staging.ts';
+import {assetSkillName, stageSkillIndex} from '../src/project-staging.ts';
 import {gitFixture, resourceFixture} from './fixtures/resources.ts';
 
 /** A project root that is a Git working tree with a clean baseline commit. */
@@ -209,5 +209,102 @@ test('committing one Skill keeps the other Skills at the committed state', async
     assert.deepEqual(committed.skills, {alpha: {enabled: false}, beta: {enabled: true}});
     const worktree = parse(readFileSync(index, 'utf8')) as {skills: Record<string, {enabled: boolean}>};
     assert.deepEqual(worktree.skills, {alpha: {enabled: false}, beta: {enabled: false}});
+  } finally {await f.cleanup();}
+});
+
+test('a switch change belongs to the Skill it names, not to the index file', () => {
+  const head = 'schemaVersion: 1\nskills:\n  alpha:\n    enabled: true\n  beta:\n    enabled: true\n';
+  const working = 'schemaVersion: 1\nskills:\n  alpha:\n    enabled: false\n  beta:\n    enabled: true\n';
+  const entries = mapProjectChanges([{path: 'skills/index.yaml', status: 'modified'}],
+    {memory: [], tasks: [], skillIndexHead: head, skillIndexWorking: working});
+  assert.deepEqual(entries.map(entry => entry.id), ['skill:alpha']);
+  assert.equal(entries[0]?.kind, 'skill');
+  assert.equal(entries[0]?.name, 'alpha');
+  assert.equal(entries[0]?.status, 'modified');
+  assert.deepEqual(entries[0]?.paths, ['skills/index.yaml']);
+  // Removing an entry is a change too: an absent Skill is enabled.
+  assert.deepEqual([...changedSkillIndexNames(head, 'schemaVersion: 1\nskills:\n  beta:\n    enabled: true\n')!], ['alpha']);
+  assert.equal(changedSkillIndexNames('not: [valid', working), undefined);
+});
+
+test('a new Skill keeps its own status while the shared index rides along', () => {
+  const entries = mapProjectChanges([
+    {path: 'skills/index.yaml', status: 'modified'},
+    {path: 'skills/gamma/SKILL.md', status: 'untracked'},
+  ], {memory: [], tasks: [],
+    skillIndexHead: 'schemaVersion: 1\nskills: {}\n',
+    skillIndexWorking: 'schemaVersion: 1\nskills:\n  gamma:\n    enabled: false\n'});
+  const byId = new Map(entries.map(entry => [entry.id, entry]));
+  // One card named after the Skill, never a second card called `index.yaml`.
+  assert.equal(byId.has('skill:index.yaml'), false);
+  assert.equal(byId.get('skill:gamma')?.name, 'gamma');
+  // The bundle decides the status; the index is only a supporting path.
+  assert.equal(byId.get('skill:gamma')?.status, 'added');
+  assert.deepEqual(byId.get('skill:gamma')?.paths, ['skills/gamma/SKILL.md', 'skills/index.yaml']);
+});
+
+test('an index change that names no Skill stays visible as its own asset', () => {
+  const text = 'schemaVersion: 1\nskills:\n  alpha:\n    enabled: false\n';
+  const formatting = mapProjectChanges([{path: 'skills/index.yaml', status: 'modified'}],
+    {memory: [], tasks: [], skillIndexHead: text, skillIndexWorking: text});
+  assert.equal(formatting[0]?.id, 'skill:index.yaml');
+  assert.equal(formatting[0]?.name, 'index.yaml');
+  // A damaged document cannot name a Skill, so the file must never disappear from the review.
+  const damaged = mapProjectChanges([{path: 'skills/index.yaml', status: 'modified'}],
+    {memory: [], tasks: [], skillIndexHead: text, skillIndexWorking: 'not: [valid'});
+  assert.equal(damaged[0]?.id, 'skill:index.yaml');
+});
+
+test('a shared-file asset stages its other paths in the same commit', async () => {
+  const f = fixture();
+  try {
+    const index = join(f.root, 'skills', 'index.yaml');
+    mkdirSync(join(f.root, 'skills'), {recursive: true});
+    const document = (enabled: boolean) => stringify({schemaVersion: 1, skills: {demo: {enabled}}}, {lineWidth: 0});
+    writeFileSync(index, document(true));
+    f.git('add', '-A');
+    f.git('commit', '-m', 'chore: seed the Skill index');
+    // A new bundle and its switch arrive together, exactly as the review selects one Skill asset.
+    mkdirSync(join(f.root, 'skills', 'demo'), {recursive: true});
+    writeFileSync(join(f.root, 'skills', 'demo', 'SKILL.md'), '---\nname: demo\ndescription: Demo\n---\nBody.\n');
+    writeFileSync(index, document(false));
+    const revision = (await f.sync.projectRootStatus()).revision;
+    await f.sync.commitProjectSelection([{paths: ['skills/demo/SKILL.md', 'skills/index.yaml'], message: 'docs(skills): add demo disabled'}],
+      revision, async (_item, _index, readHead) => [stageSkillIndex(await readHead('skills/index.yaml'), readFileSync(index, 'utf8'), 'demo')]);
+    assert.deepEqual(f.git('show', '--name-only', '--pretty=format:', 'HEAD').split('\n').filter(Boolean).sort(),
+      ['skills/demo/SKILL.md', 'skills/index.yaml']);
+    const committed = parse(f.git('show', 'HEAD:skills/index.yaml')) as {skills: Record<string, {enabled: boolean}>};
+    assert.deepEqual(committed.skills, {demo: {enabled: false}});
+    assert.equal(f.git('status', '--porcelain', 'skills/').trim(), '');
+  } finally {await f.cleanup();}
+});
+
+test('an unattributable index change is committed as the file it is, not as a Skill', async () => {
+  const f = fixture();
+  try {
+    // The fallback asset owns the file; a Skill literally named `index.yaml` does not exist.
+    assert.equal(assetSkillName('skill:index.yaml'), undefined);
+    assert.equal(assetSkillName('skill:alpha'), 'alpha');
+    const index = join(f.root, 'skills', 'index.yaml');
+    mkdirSync(join(f.root, 'skills'), {recursive: true});
+    // The fixture baseline already carries the initialized index, so seed different bytes.
+    writeFileSync(index, 'schemaVersion: 1\nskills: {}\n# baseline\n');
+    f.git('add', '-A');
+    f.git('commit', '-m', 'chore: seed the Skill index');
+    // A hand-written comment changes the bytes without naming any Skill.
+    writeFileSync(index, 'schemaVersion: 1\n# hand written\nskills: {}\n');
+    const asset = {id: 'skill:index.yaml', paths: ['skills/index.yaml']};
+    const revision = (await f.sync.projectRootStatus()).revision;
+    await f.sync.commitProjectSelection([{paths: asset.paths, message: 'docs(skills): annotate the index'}], revision,
+      async (_entry, _index, readHead) => {
+        const name = assetSkillName(asset.id);
+        return name === undefined
+          ? undefined
+          : [stageSkillIndex(await readHead('skills/index.yaml'), readFileSync(index, 'utf8'), name)];
+      });
+    // Rebuilding the index from a Skill named `index.yaml` used to write HEAD's bytes back and fail
+    // the commit as "nothing to commit", leaving the change in the worktree forever.
+    assert.equal(f.git('show', 'HEAD:skills/index.yaml').trim(), 'schemaVersion: 1\n# hand written\nskills: {}');
+    assert.equal(f.git('status', '--porcelain', 'skills/').trim(), '');
   } finally {await f.cleanup();}
 });

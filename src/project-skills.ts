@@ -302,10 +302,12 @@ export class ProjectSkillService {
       throw new Error(`Project Skill does not exist: ${name}`);
     }
     const index = this.readIndex();
-    const next = indexSchema.parse({
-      schemaVersion: 1,
-      skills: {...index.skills, [name]: {enabled}},
-    });
+    // Enabling removes the explicit entry: an absent Skill is enabled, so turning a switch back on
+    // leaves the shared index exactly as HEAD has it instead of leaving an `enabled: true` leftover.
+    const skills = {...index.skills};
+    if (enabled) delete skills[name];
+    else skills[name] = {enabled: false};
+    const next = indexSchema.parse({schemaVersion: 1, skills});
     const content = stringify(next, {lineWidth: 0});
     if (Buffer.byteLength(content) > MAX_INDEX_BYTES) throw new Error(`Skill index exceeds ${MAX_INDEX_BYTES} bytes`);
     atomicWriteFile(this.layout.skillIndex, content, 0o600);

@@ -76,6 +76,8 @@ test('project skills invalidate the DSH catalog on enable changes and retain the
     await f.service.setEnabled('toggle-skill', true);
     assert.equal(invalidations, 2);
     assert.deepEqual((await f.ctx.skills.list()).map(skill => skill.name), ['inherited-skill', 'toggle-skill']);
+    // Enabling removes the explicit entry, so a switch turned off and on again leaves no leftover diff.
+    assert.equal(readFileSync(f.service.layout.skillIndex, 'utf8'), 'schemaVersion: 1\nskills: {}\n');
   } finally {await f.cleanup();}
 });
 

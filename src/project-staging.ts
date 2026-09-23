@@ -12,6 +12,16 @@ function parseDocument(text: string | undefined): unknown {
 }
 
 /**
+ * The Skill a `skill:<name>` asset owns. The fallback `index.yaml` asset owns the whole file rather
+ * than a Skill, so it has no name to rebuild the index from and is staged by path instead.
+ */
+export function assetSkillName(id: string): string | undefined {
+  if (!id.startsWith('skill:')) return undefined;
+  const name = id.slice('skill:'.length);
+  return name === 'index.yaml' ? undefined : name;
+}
+
+/**
  * The exact bytes the Skill index must have after committing only `name`: the other Skills keep the
  * enabled state they have in HEAD. Staged by content because one index file carries every Skill, and
  * the worktree is never rewritten, so the rest of the review stays intact.

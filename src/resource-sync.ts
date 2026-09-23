@@ -377,6 +377,14 @@ export class ResourceSyncManager {
           await this.run(['-c', 'core.hooksPath=/dev/null', 'add', '-A', '--', ...(selected as string[])], item.path!,
             {signal: controller.signal, sync: true, timeoutMs});
         } else {
+          // A shared file is written by content, but the asset's other paths are still staged as they
+          // are: a new Skill bundle and its index switch must land in the same commit.
+          const replaced = new Set(staged.map(file => safeChangePath(file.path)));
+          const rest = (selected as string[]).filter(path => !replaced.has(path));
+          if (rest.length > 0) {
+            await this.run(['-c', 'core.hooksPath=/dev/null', 'add', '-A', '--', ...rest], item.path!,
+              {signal: controller.signal, sync: true, timeoutMs});
+          }
           for (const file of staged) {
             const path = safeChangePath(file.path);
             if (path === undefined) resourceFailure('resource-target-invalid');

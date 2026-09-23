@@ -12,7 +12,7 @@ import type {RepositoryMergeResult} from './resource-contract.ts';
 import {gitKeyChoices} from './resource-auth.ts';
 import {pickSource} from './directory-pick.ts';
 import {mapProjectChanges, parseMcpServers, type McpDeclarationFile, type ProjectChangeContext, type ProjectChangesSnapshot} from './project-changes.ts';
-import {stageSkillIndex} from './project-staging.ts';
+import {assetSkillName, stageSkillIndex} from './project-staging.ts';
 import {ProjectTaskStore} from './tasks.ts';
 
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
@@ -174,8 +174,14 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
       tasks = new ProjectTaskStore(project).list().tasks
         .map(task => ({directory: task.directory, title: task.title, artifactCount: task.artifacts.length}));
     } catch {tasks = [];}
+    // The shared Skill index is compared across HEAD and the worktree, so a switch change can name the
+    // Skill it belongs to instead of appearing as an asset called `index.yaml`.
+    const skillIndexHead = await clones.run(['show', 'HEAD:skills/index.yaml'], project.root).catch(() => undefined);
+    const skillIndexWorking = readDeclaration(join(project.root, 'skills', 'index.yaml'));
     const context: ProjectChangeContext = {memory: project.memory.map(item => ({id: item.id, name: item.name, path: item.path})),
-      tasks, mcpWorking: parseMcpServers(workingDeclarations), mcpHead: parseMcpServers(headDeclarations)};
+      tasks, mcpWorking: parseMcpServers(workingDeclarations), mcpHead: parseMcpServers(headDeclarations),
+      ...(skillIndexHead === undefined ? {} : {skillIndexHead}),
+      ...(skillIndexWorking === undefined ? {} : {skillIndexWorking})};
     const repository = status.repository;
     return {revision: status.revision, available: repository !== undefined,
       ...(repository?.branch === undefined ? {} : {branch: repository.branch}),
@@ -192,7 +198,6 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
         message: z.string().min(1).max(4096),
         paths: z.array(z.string().min(1).max(4000)).min(1).max(500)}).strict()).min(1).max(200)}).strict()
       .parse(await readJsonBody(req));
-    const plainId = (value: string, prefix: string) => value.startsWith(prefix) ? value.slice(prefix.length) : value;
     const root = store.read().root;
     const readText = (path: string): string | undefined => {
       try {
@@ -203,11 +208,14 @@ export function registerResourceApi(ctx: Context, store: ProjectResourceStore, c
     const workingSkillIndex = (): string | undefined => readText(join(root, 'skills', 'index.yaml'));
     // The Skill index is the one file several assets still share, so it is staged by content rather
     // than by path: exactly the selected Skill's state is written into the index, worktree untouched.
+    // The fallback `index.yaml` asset owns the file and is staged by path instead: rebuilding it from
+    // a Skill literally named `index.yaml` would write HEAD's own bytes back and fail the commit.
     const resolveStaged: ProjectStagingResolver = async (entry, index, readHead) => {
       const asset = action.items[index];
       if (asset === undefined) return undefined;
-      if (asset.kind === 'skill' && entry.paths.includes('skills/index.yaml')) {
-        return [stageSkillIndex(await readHead('skills/index.yaml'), workingSkillIndex(), plainId(asset.id, 'skill:'))];
+      const name = assetSkillName(asset.id);
+      if (asset.kind === 'skill' && name !== undefined && entry.paths.includes('skills/index.yaml')) {
+        return [stageSkillIndex(await readHead('skills/index.yaml'), workingSkillIndex(), name)];
       }
       return undefined;
     };
