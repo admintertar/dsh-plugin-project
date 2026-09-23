@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {ProjectHttpError} from './http.ts';
 import {resourceFailure} from './resource-files.ts';
 import {inspectResourceGit, ResourceGitError, type GitRun} from './resource-git.ts';
-import {validResourceUrl, type ManagedResource, type ProjectRepositoryView, type RepositoryMergeResult, type ResourceBranches, type ResourceChangeStatus, type ResourceChanges, type ResourceGitSync, type ResourcesSnapshot, type ResourceSyncAction} from './resource-contract.ts';
+import {validResourceUrl, type ManagedResource, type ProjectRepositoryView, type RepositoryMergeResult, type ResourceBranches, type ResourceChangeStatus, type ResourceChanges, type ResourceGitCommit, type ResourceGitSync, type ResourcesSnapshot, type ResourceSyncAction} from './resource-contract.ts';
 import type {ResourceCloneManager} from './resource-clones.ts';
 import type {PickSource} from './api-types.ts';
 import {isProjectRootResource, managedResources} from './resource-scope.ts';
@@ -21,6 +21,7 @@ export type ProjectStagingResolver = (item: {paths: readonly string[]; message: 
 interface Repository {
   branch?: string; head?: string; remote?: string; remoteRef?: string; trackingRef?: string; upstreamHead?: string;
   target: string; connected: boolean; dirty: boolean; inProgress: boolean; ahead?: number; behind?: number; upstream?: string;
+  aheadCommits?: ResourceGitCommit[];
   files: {path: string; status: ResourceChangeStatus}[];
 }
 interface RecordState {key: string; target?: string; checkedAt?: string; updatedAt?: string; error?: string; attemptedAt: number}
@@ -82,6 +83,21 @@ function parseChanges(output: string): {path: string; status: ResourceChangeStat
   return files;
 }
 
+/** How many local commits the hover text names. The count itself reports anything beyond this list. */
+const aheadCommitLimit = 20;
+/**
+ * The local commits the branch is ahead by, newest first. A commit subject may contain any character
+ * except NUL, so records are NUL-separated and the hash is separated by a unit separator; the list is
+ * only decoration for the sync tag, so a failed read leaves the count intact instead of failing the check.
+ */
+async function readAheadCommits(run: GitRun, path: string, head: string, upstreamHead: string): Promise<ResourceGitCommit[]> {
+  const output = await run(['-c', 'core.quotePath=false', 'log', '--no-decorate', '--max-count', String(aheadCommitLimit),
+    '--format=%H%x1f%s%x00', head, '--not', upstreamHead], path);
+  return output.split('\0').filter(record => record.trim().length > 0).map(record => {
+    const [hash = '', subject = ''] = record.split('\x1f');
+    return {hash: hash.trim(), subject};
+  }).filter(commit => commit.hash.length > 0);
+}
 /** Local inspection only. Track the actual current branch; manifest.branch remains a clone option. */
 async function inspect(path: string, url: string | undefined, run: GitRun, untracked: 'normal' | 'all' = 'normal'): Promise<Repository> {
   if (realpathSync.native(await run(['rev-parse', '--show-toplevel'], path)) !== realpathSync.native(path)) resourceFailure('resource-git-invalid');
@@ -117,6 +133,7 @@ async function inspect(path: string, url: string | undefined, run: GitRun, untra
     const [ahead, behind] = counts.split(/\s+/).map(Number);
     if (!Number.isSafeInteger(ahead) || !Number.isSafeInteger(behind)) resourceFailure('git-sync-failed');
     Object.assign(result, {ahead, behind});
+    if (ahead) result.aheadCommits = await readAheadCommits(run, path, result.head, result.upstreamHead).catch(() => []);
   }
   return result;
 }
@@ -188,6 +205,8 @@ export class ResourceSyncManager {
       : !local.upstreamHead ? 'error' : local.ahead && local.behind ? 'diverged' : local.behind ? 'behind' : local.ahead ? 'ahead' : 'current';
     return {status: record?.error ? 'error' : status, dirty: local.dirty, inProgress: local.inProgress, upstream: local.upstream,
       ...(checked ? {ahead: local.ahead, behind: local.behind, checkedAt: record!.checkedAt} : {}),
+      // Only a checked branch reports its commits, exactly like the counts they explain.
+      ...(checked && local.aheadCommits && local.aheadCommits.length > 0 ? {aheadCommits: local.aheadCommits} : {}),
       updatedAt: record?.updatedAt, error: record?.error};
   }
   async snapshot(canPick: boolean, pickSource: PickSource | null = canPick ? 'native' : null): Promise<ResourcesSnapshot> {

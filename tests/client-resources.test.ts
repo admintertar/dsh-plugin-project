@@ -1,7 +1,7 @@
 import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
 import {ResourceController} from '../src/client/resource-controller.ts';
-import {canUpdateResource, detectedResourceType, resourceSyncDescription} from '../src/client/resource-ui.ts';
+import {canUpdateResource, detectedResourceType, resourceSyncDescription, resourceSyncTooltip} from '../src/client/resource-ui.ts';
 
 const empty = {revision: 'a'.repeat(64), version: 'initial', resources: [], operations: [], canPick: true, pickSource: 'native', canClone: true};
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), {status});
@@ -36,6 +36,20 @@ test('the repository description names the one reason an action is unavailable',
   assert.equal(resourceSyncDescription({status: 'behind', behind: 2, error: 'git-sync-timeout'}, t), 'resourceSyncTimeout');
   assert.equal(resourceSyncDescription({status: 'behind', behind: 2}, t), 'resourceSyncBody');
   assert.equal(resourceSyncDescription(undefined, t), 'resourceSyncBody');
+});
+
+test('the sync tag hover names the local commits an ahead branch hides, capped with a remaining count', () => {
+  const t = ((key: string) => key) as unknown as Parameters<typeof resourceSyncTooltip>[3];
+  const commits = [{hash: 'a'.repeat(40), subject: 'first'}, {hash: 'b'.repeat(40), subject: 'second'}];
+  assert.equal(resourceSyncTooltip({status: 'ahead', ahead: 2, aheadCommits: commits}, 'label', 'description', t),
+    `label\n${'a'.repeat(7)} first\n${'b'.repeat(7)} second`);
+  // A capped list must say how many commits it left out instead of dropping them silently.
+  assert.equal(resourceSyncTooltip({status: 'ahead', ahead: 22, aheadCommits: commits}, 'label', 'description', t),
+    `label\n${'a'.repeat(7)} first\n${'b'.repeat(7)} second\nresourceSyncAheadMore`);
+  // Every other state keeps the one-line label and description the tag already explained.
+  assert.equal(resourceSyncTooltip({status: 'current'}, 'label', 'description', t), 'label · description');
+  assert.equal(resourceSyncTooltip({status: 'ahead', ahead: 2}, 'label', 'description', t), 'label · description');
+  assert.equal(resourceSyncTooltip(undefined, 'label', 'description', t), 'label · description');
 });
 
 test('resource controller retains a successful snapshot on error and ignores late GETs after mutation', async () => {

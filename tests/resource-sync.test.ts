@@ -169,6 +169,27 @@ test('a diverged branch is merged, keeping both the local and the remote commits
   } finally {await f.cleanup();}
 });
 
+test('an ahead branch names its local commits, newest first and capped for the hover text', async () => {
+  const f = await fixture();
+  try {
+    const commit = (message: string) => {
+      writeFileSync(join(f.path, 'local.txt'), `${message}\n`); f.git('add', '.');
+      f.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', '-c', 'core.hooksPath=/dev/null', 'commit', '-m', message);
+    };
+    // Nothing is ahead before any local commit, so no list may be reported.
+    assert.equal((await f.act('check')).aheadCommits, undefined);
+    for (let index = 1; index <= 22; index++) commit(`local ${index}`);
+    const head = f.git('rev-parse', 'HEAD');
+    const checked = await f.act('check');
+    assert.equal(checked.status, 'ahead'); assert.equal(checked.ahead, 22);
+    // A long branch must not produce an unbounded hover text: the Host caps the list it reads.
+    assert.equal(checked.aheadCommits?.length, 20);
+    assert.equal(checked.aheadCommits?.[0]?.hash, head);
+    assert.equal(checked.aheadCommits?.[0]?.subject, 'local 22');
+    assert.equal(checked.aheadCommits?.at(-1)?.subject, 'local 3');
+  } finally {await f.cleanup();}
+});
+
 test('a conflicting merge is reported and rolled back completely, never leaving a half-merged tree', async () => {
   const f = await fixture();
   try {

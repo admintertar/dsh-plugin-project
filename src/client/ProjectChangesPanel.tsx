@@ -5,7 +5,7 @@ import type {ProjectChangeEntry, ProjectChangeKind, ProjectChangesSnapshot} from
 import type {ProjectLocaleKey} from '../locales.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectCheckbox, ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
-import {canUpdateResource, resourceErrorText, resourceSyncDescription, resourceSyncLabel} from './resource-ui.ts';
+import {canUpdateResource, resourceErrorText, resourceSyncDescription, resourceSyncLabel, resourceSyncTooltip} from './resource-ui.ts';
 import type {ProjectChangesController, RepositorySyncAction} from './project-changes-controller.ts';
 import type {MergeConflictRequest, MergeConflictResult} from './merge-conflict.ts';
 
@@ -158,7 +158,7 @@ export function ProjectChangesPanel({controller, root, t, handoffConflict}: {con
   const heading = <div className="project-card-top">
     <div className="project-change-title">
       <h2>{t('projectChanges')}</h2>
-      {data?.available === true && summary !== undefined && <Tooltip label={summary.label} side="bottom" maxWidth={480}>
+      {data?.available === true && summary !== undefined && <Tooltip label={resourceSyncTooltip(data.sync, summary.label, resourceSyncDescription(data.sync, t), t)} side="bottom" maxWidth={480}>
         <button type="button" className="project-change-repository"
           aria-haspopup="dialog" aria-label={t('changeRepositoryDetails')} onClick={() => setDetails(true)}>
           {data.branch !== undefined && <span className="project-resource-branch"><IconBranchOutline16 /><span>{data.branch}</span></span>}

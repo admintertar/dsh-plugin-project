@@ -3,7 +3,7 @@ import {Button, IconBranchOutline16, IconCheckOutline16, IconDownloadOutline16, 
 import type {ManagedResource, ResourceBranches, ResourceChangeStatus, ResourceChanges} from '../resource-contract.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
-import {canCheckResource, canCommitResource, canPushResource, canSwitchResource, canUpdateResource, resourceErrorText, resourceSyncDescription, resourceSyncLabel} from './resource-ui.ts';
+import {canCheckResource, canCommitResource, canPushResource, canSwitchResource, canUpdateResource, resourceErrorText, resourceSyncDescription, resourceSyncLabel, resourceSyncTooltip} from './resource-ui.ts';
 
 function resourceStatusLabel(item: ManagedResource) {
   return item.status === 'ready' ? 'resourceReady' : item.status === 'unbound' ? 'resourceUnbound' : item.status === 'missing' ? 'missing' : 'resourceUnavailable';
@@ -99,7 +99,7 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
       <div className="project-mcp-card-body">
         <Tooltip label={item.name} side="top"><strong className="project-mcp-name">{item.name}</strong></Tooltip>
         <div className="project-summary"><Tag>{item.type === 'git' ? 'Git' : t('resourceLocal')}</Tag>
-          <Tooltip label={gitReady ? `${label} · ${syncDescription}` : label} side="top"><span className="project-resource-sync-label"><Tag tone={tone}>{label}</Tag></span></Tooltip>
+          <Tooltip label={gitReady ? resourceSyncTooltip(sync, label, syncDescription, t) : label} side="top"><span className="project-resource-sync-label"><Tag tone={tone}>{label}</Tag></span></Tooltip>
           {item.git?.branch && <Tooltip label={`${t('resourceCurrentBranch')}: ${item.git.branch}`} side="top">
             <span className="project-resource-branch"><IconBranchOutline16 /><span>{item.git.branch}</span></span>
           </Tooltip>}

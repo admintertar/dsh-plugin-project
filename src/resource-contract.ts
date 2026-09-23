@@ -20,10 +20,14 @@ export interface ResourceInspection {
   path: string; name: string; external: boolean; duplicateId?: string;
   git?: {url?: string; branch?: string};
 }
+/** One local commit a branch is ahead of its tracking branch by, named by the sync tag's hover text. */
+export interface ResourceGitCommit {hash: string; subject: string}
 export interface ResourceGitSync {
   status: 'unlinked' | 'unborn' | 'unchecked' | 'current' | 'behind' | 'ahead' | 'diverged' | 'detached' | 'no-upstream' | 'error';
   phase?: 'checking' | 'updating' | 'committing' | 'pushing' | 'switching';
   dirty?: boolean; inProgress?: boolean; ahead?: number; behind?: number; upstream?: string;
+  /** What `ahead` counts, newest first and capped by the Host; absent while nothing is ahead. */
+  aheadCommits?: ResourceGitCommit[];
   checkedAt?: string; updatedAt?: string; error?: string;
 }
 /**
