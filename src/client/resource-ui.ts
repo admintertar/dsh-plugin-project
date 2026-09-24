@@ -54,14 +54,14 @@ export function resourceSyncLabel(sync: ResourceGitSync | undefined, t: Capabili
 }
 /**
  * The hover text for the sync tag. "Ahead" only counts local commits, so an ahead branch names them
- * instead of repeating the state; every other state keeps the one-line label and description. A capped
- * list closes with the number of commits it left out.
+ * instead of repeating the state the tag already shows; every other state keeps the one-line label and
+ * description. A capped list closes with the number of commits it left out.
  */
 export function resourceSyncTooltip(sync: ResourceGitSync | undefined, label: string, description: string, t: CapabilityTranslate): string {
   const commits = sync?.aheadCommits ?? [];
   if (commits.length === 0) return `${label} · ${description}`;
   const remaining = Math.max((sync?.ahead ?? commits.length) - commits.length, 0);
-  return [label, ...commits.map(commit => `${commit.hash.slice(0, 7)} ${commit.subject}`.trimEnd()),
+  return [...commits.map(commit => `${commit.hash.slice(0, 7)} ${commit.subject}`.trimEnd()),
     ...(remaining > 0 ? [t('resourceSyncAheadMore', {count: remaining})] : [])].join('\n');
 }
 /**

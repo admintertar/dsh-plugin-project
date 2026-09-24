@@ -38,14 +38,15 @@ test('the repository description names the one reason an action is unavailable',
   assert.equal(resourceSyncDescription(undefined, t), 'resourceSyncBody');
 });
 
-test('the sync tag hover names the local commits an ahead branch hides, capped with a remaining count', () => {
+test('the sync tag hover names the local commits an ahead branch hides, without repeating the tag', () => {
   const t = ((key: string) => key) as unknown as Parameters<typeof resourceSyncTooltip>[3];
   const commits = [{hash: 'a'.repeat(40), subject: 'first'}, {hash: 'b'.repeat(40), subject: 'second'}];
+  // The tag already reads "本地领先 n 个提交", so the hover lists them instead of repeating the count.
   assert.equal(resourceSyncTooltip({status: 'ahead', ahead: 2, aheadCommits: commits}, 'label', 'description', t),
-    `label\n${'a'.repeat(7)} first\n${'b'.repeat(7)} second`);
+    `${'a'.repeat(7)} first\n${'b'.repeat(7)} second`);
   // A capped list must say how many commits it left out instead of dropping them silently.
   assert.equal(resourceSyncTooltip({status: 'ahead', ahead: 22, aheadCommits: commits}, 'label', 'description', t),
-    `label\n${'a'.repeat(7)} first\n${'b'.repeat(7)} second\nresourceSyncAheadMore`);
+    `${'a'.repeat(7)} first\n${'b'.repeat(7)} second\nresourceSyncAheadMore`);
   // Every other state keeps the one-line label and description the tag already explained.
   assert.equal(resourceSyncTooltip({status: 'current'}, 'label', 'description', t), 'label · description');
   assert.equal(resourceSyncTooltip({status: 'ahead', ahead: 2}, 'label', 'description', t), 'label · description');
