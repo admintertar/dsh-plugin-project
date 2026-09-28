@@ -6,7 +6,7 @@ export interface TaskContinuationDependencies {
   beginNavigation(): AbortSignal;
   createSession(root: string, sessionId: string): Promise<void>;
   readTask(id: string): Promise<ContinueTask>;
-  input(sessionId: string): {draft(): string; canFill?(): boolean; setDraft(text: string): void; notifyPreserved?(text: string): void};
+  input(sessionId: string): {draft(): string; canFill?(): boolean; setDraft(text: string): void; notifyPreserved?(text: string): void; release?(): void};
   draft(task: ContinueTask): string;
   openSession(sessionId: string): void;
   id?(): string;
@@ -47,6 +47,7 @@ export class TaskContinuationController {
       const latest = await this.dependencies.readTask(task.id);
       if (!valid()) return {sessionId: preparation.sessionId, cancelled: true};
       const input = this.dependencies.input(preparation.sessionId);
+      try {
       const draftPreserved = input.draft().length > 0 || input.canFill?.() === false;
       const suggestedDraft = this.dependencies.draft(latest);
       if (!draftPreserved) input.setDraft(suggestedDraft);
@@ -54,6 +55,7 @@ export class TaskContinuationController {
       this.dependencies.openSession(preparation.sessionId);
       this.preparations.delete(key);
       return {sessionId: preparation.sessionId, draftPreserved, ...(draftPreserved ? {suggestedDraft} : {})};
+      } finally {input.release?.();}
     };
     preparation.pending = operation().finally(() => {preparation.pending = undefined;});
     return preparation.pending;

@@ -46,7 +46,7 @@ mkdirSync(runtime, {recursive: true});
 // tarballs. Yarn does not recursively auto-install peers the way npm does, so
 // the one peer npm previously added implicitly is declared explicitly at the
 // version the official release preapproves (see dsh-desktop-source/.yarnrc.yml).
-const runtimeDependencies = {...overrides, '@deepseek-ai/cordis-plugin-group': '1.0.2'};
+const runtimeDependencies = {...overrides, '@deepseek-ai/cordis-plugin-group': '1.0.4'};
 writeFileSync(join(runtime, 'package.json'), JSON.stringify({
   name: 'project-local-runtime', private: true, type: 'module',
   packageManager: 'yarn@4.18.0', dependencies: runtimeDependencies, resolutions: overrides,

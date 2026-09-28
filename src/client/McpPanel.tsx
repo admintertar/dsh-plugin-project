@@ -1,5 +1,5 @@
 import {useId, useRef, useState} from 'react';
-import {Button, IconEditOutline16, IconTrashOutline16, IconWarningOutline16, Input, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
+import {Button, IconEditOutlineRegular, IconTrashOutlineRegular, IconWarningOutlineRegular, Input, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ProjectCapabilityController} from './controller.ts';
 import type {McpAction, ProjectMcpServer, ProjectMcpServerView, ProjectMcpConnectionTestResult} from './types.ts';
 import {CapabilityError, useCapability, type CapabilityTranslate} from './capability-ui.tsx';
@@ -106,14 +106,14 @@ export function McpPanel({controller, t}: {controller: ProjectCapabilityControll
         <div className="project-mcp-card-footer">
           {/* Pinned Button does not forward refs; Tooltip needs a DOM anchor for positioning. */}
           <Tooltip label={t('edit')} side="top" delayMs={400} disabled={busy}><span className="project-mcp-action-anchor">
-            <Button className="project-mcp-action" size="sm" icon={<IconEditOutline16 />} disabled={busy} aria-label={`${t('edit')}: ${server.serverName}`} onClick={() => edit(server)} />
+            <Button className="project-mcp-action" size="sm" icon={<IconEditOutlineRegular />} disabled={busy} aria-label={`${t('edit')}: ${server.serverName}`} onClick={() => edit(server)} />
           </span></Tooltip>
           <Tooltip label={t('delete')} side="top" delayMs={400} disabled={busy}><span className="project-mcp-action-anchor">
-            <Button className="project-mcp-action project-mcp-action-danger" size="sm" icon={<IconTrashOutline16 />} disabled={busy} aria-label={`${t('delete')}: ${server.serverName}`} onClick={() => setRemoving(server)} />
+            <Button className="project-mcp-action project-mcp-action-danger" size="sm" icon={<IconTrashOutlineRegular />} disabled={busy} aria-label={`${t('delete')}: ${server.serverName}`} onClick={() => setRemoving(server)} />
           </span></Tooltip>
           {/* The diagnostic closes the action row, matching the resource card, instead of claiming the row's free space on the left. */}
           {hasError && <Tooltip label={t(status === 'reconnecting' ? 'mcpReconnectingBody' : 'mcpConnectionError')} side="top" maxWidth={320} disabled={errorDetails !== null}>
-            <span className="project-mcp-action-anchor"><Button size="sm" icon={<IconWarningOutline16 className="project-mcp-error-icon" />} aria-label={`${t('mcpErrorDetails')}: ${server.serverName}`} aria-haspopup="dialog"
+            <span className="project-mcp-action-anchor"><Button size="sm" icon={<IconWarningOutlineRegular className="project-mcp-error-icon" />} aria-label={`${t('mcpErrorDetails')}: ${server.serverName}`} aria-haspopup="dialog"
               onClick={event => {errorOpener.current = event.currentTarget; setErrorDetails({server, reconnecting: status === 'reconnecting'});}} /></span>
           </Tooltip>}
         </div>
@@ -164,7 +164,7 @@ export function McpPanel({controller, t}: {controller: ProjectCapabilityControll
               <div className="project-secret-list">{draft.values.map((row, index) => <div className="project-secret-row" key={index}>
                 <Input aria-label={`${t('key')} ${index + 1}`} placeholder={t('key')} value={row.key} maxLength={256} required autoComplete="off" onChange={event => update({values: draft.values.map((item, i) => i === index ? {...item, key: event.target.value} : item)})} />
                 <Input aria-label={`${t('secretValue')} ${index + 1}`} placeholder={t('secretValue')} type="password" autoComplete="new-password" value={row.value} maxLength={32768} onChange={event => update({values: draft.values.map((item, i) => i === index ? {...item, value: event.target.value} : item)})} />
-                <Button type="button" variant="ghost" size="sm" className="project-remove-value" aria-label={t('removeValue')} onClick={() => update({values: draft.values.filter((_, i) => i !== index)})}><IconTrashOutline16 /></Button>
+                <Button type="button" variant="ghost" size="sm" className="project-remove-value" aria-label={t('removeValue')} onClick={() => update({values: draft.values.filter((_, i) => i !== index)})}><IconTrashOutlineRegular /></Button>
               </div>)}
                 <ProjectAddButton onClick={() => update({values: [...draft.values, {key: '', value: ''}]})}>{t('addValue')}</ProjectAddButton>
               </div>

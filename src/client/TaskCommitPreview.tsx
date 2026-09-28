@@ -23,7 +23,9 @@ export function TaskCommitPreview({view, t}: {view: TaskCommitView; t: Capabilit
   const remote = commitWebUrl(view.request.repository, view.request.commit);
   const errorText = (code: string) => t(errorKeys[code as keyof typeof errorKeys] ?? 'taskCommitFailed');
   const missing = data && data.state !== 'ready';
-  const labels = {copy: t('copy'), copied: t('copied'), collapse: t('taskCommitCollapse'), collapseAria: t('taskCommitCollapse'),
+  const labels = {copy: t('copy'), copied: t('copied'), codeLabel: t('taskCommitCodeLabel'),
+    wrapLabel: t('taskCommitWrapLabel'), unwrapLabel: t('taskCommitUnwrapLabel'),
+    collapse: t('taskCommitCollapse'), collapseAria: t('taskCommitCollapse'),
     expand: (count: number) => t('taskCommitExpand', {count}), expandAria: (count: number) => t('taskCommitExpand', {count}),
     files: (count: number) => t('taskCommitDiffFiles', {count})};
   return <section className="project-task-commit" aria-label={t('taskCommitPreview')} aria-busy={loading}>

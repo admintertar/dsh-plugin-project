@@ -6,6 +6,11 @@ import type {SessionId} from '@deepseek-ai/dsh-session/types';
 /** Session ordering choices retained after removing the Workspace grouping layer. */
 export type ProjectSessionOrder = 'manual' | 'updated';
 
+/** Official 0.1.7 selects the main view through a retained reference. */
+export function selectedSessionId(list: SessionListState): SessionId | undefined {
+  return Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id;
+}
+
 /** Inputs needed to derive the flat, Project-scoped Session list. */
 export interface ProjectSessionRowsInput {
   list: SessionListState;
@@ -68,7 +73,7 @@ export function projectSessionRows({
       && session.cwd === projectRoot
       && session.origin !== 'subagent'
       && !archived.has(session.id)
-      && (!session.blank || session.id === list.current));
+      && (!session.blank || session.id === selectedSessionId(list)));
   visible.sort(byRecency);
   if (viewOrder === undefined) return visible;
 

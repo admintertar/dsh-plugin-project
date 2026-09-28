@@ -1,6 +1,6 @@
 import {useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
-import {Button, IconDownloadOutline16, IconEditOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconTrashOutline16,
-  IconWarningOutline16, Input, Modal, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
+import {Button, IconDownloadOutlineRegular, IconEditOutlineRegular, IconFolderOpenOutlineRegular, IconLinkOutlineRegular, IconTrashOutlineRegular,
+  IconWarningOutlineRegular, Input, Modal, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ResourceView} from '../project.ts';
 import type {ResourceInspection, ManagedResource} from '../resource-contract.ts';
 import {validResourceUrl} from '../resource-contract.ts';
@@ -131,20 +131,20 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
           loadChanges: () => controller.changes(item.id)} : undefined}>
           {item.type === 'git' && item.status === 'ready' && (!item.url || ['unlinked', 'no-upstream'].includes(item.git?.sync?.status ?? '')) &&
             <IconAction label={`${t(item.git?.sync?.status === 'no-upstream' ? 'resourceSetTracking' : 'resourceAssociate')}: ${item.name}`}
-              icon={<IconLinkOutline16 />} disabled={locked || !state.data?.canClone} action={event => open(event, 'associate', item)} />}
+              icon={<IconLinkOutlineRegular />} disabled={locked || !state.data?.canClone} action={event => open(event, 'associate', item)} />}
           {/* A resource that is not ready yet is cloned, not bound: the action matches the icon rows around it
               and its tooltip states why the directory is missing. */}
           {item.type === 'git' && item.url && item.status !== 'ready' && !item.external &&
-            <IconAction label={`${t('resourceClone')}: ${item.name}`} tooltip={t('resourceCloneBody')} icon={<IconDownloadOutline16 />}
+            <IconAction label={`${t('resourceClone')}: ${item.name}`} tooltip={t('resourceCloneBody')} icon={<IconDownloadOutlineRegular />}
               disabled={locked || cloneActive || !state.data?.canClone} action={event => open(event, 'clone', item)} />}
-          <IconAction label={`${t('bindResource')}: ${item.name}`} icon={<IconFolderOpenOutline16 />} disabled={locked || !state.data?.canPick} action={event => open(event, 'bind', item)} />
-          <IconAction label={`${t('editResource')}: ${item.name}`} icon={<IconEditOutline16 />} disabled={locked} action={event => open(event, 'edit', item)} />
-          <IconAction label={`${t('removeResource')}: ${item.name}`} icon={<IconTrashOutline16 />} disabled={locked} action={event => {
+          <IconAction label={`${t('bindResource')}: ${item.name}`} icon={<IconFolderOpenOutlineRegular />} disabled={locked || !state.data?.canPick} action={event => open(event, 'bind', item)} />
+          <IconAction label={`${t('editResource')}: ${item.name}`} icon={<IconEditOutlineRegular />} disabled={locked} action={event => open(event, 'edit', item)} />
+          <IconAction label={`${t('removeResource')}: ${item.name}`} icon={<IconTrashOutlineRegular />} disabled={locked} action={event => {
             opener.current = event.currentTarget; controller.clearError(); setRemoving({item, revision: state.data!.revision});
           }} />
           {/* The diagnostic closes the action row: the details action already claims the row's free space on the left,
               so an auto margin here would open a gap in the middle of the buttons. */}
-          {item.git?.diagnostic && <IconAction label={errorText(item.git.diagnostic, t)} icon={<IconWarningOutline16 />}
+          {item.git?.diagnostic && <IconAction label={errorText(item.git.diagnostic, t)} icon={<IconWarningOutlineRegular />}
             action={event => {opener.current = event.currentTarget; setDetails({name: item.name, error: item.git!.diagnostic!});}} />}
       </ResourceCard>;
     })}</div>
@@ -156,7 +156,7 @@ export function ResourcesPanel({controller, root, pickDirectory, t}: {controller
           {['failed', 'cancelled', 'interrupted'].includes(operation.status) && <p className="project-meta">{t('resourceRetained')}</p>}
         </div>
         <div className="project-resource-operation-actions">
-          {operation.error && <IconAction label={errorText(operation.error, t)} icon={<IconWarningOutline16 />} action={event => {
+          {operation.error && <IconAction label={errorText(operation.error, t)} icon={<IconWarningOutlineRegular />} action={event => {
             opener.current = event.currentTarget; setDetails({name: operation.name, error: operation.error!});
           }} />}
           {(operation.status === 'cloning' || operation.status === 'cancelling') && <Button variant="outline" size="sm" disabled={state.pending.includes(operation.id) || operation.status === 'cancelling'}

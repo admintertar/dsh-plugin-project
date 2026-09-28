@@ -77,10 +77,19 @@ export function taskPreviewReads(controller: Pick<ProjectCapabilityController, '
     });
   };
   return {
+    // Task snapshots are addressed by their task revision. Related resources are
+    // fetched through the Task API, so they do not join the Session resource bus.
+    addResource: () => {},
+    setResources: () => {},
     loadPage: (id, _file, offset, signal) => load(id, offset, signal, false, false),
     reloadPages: (id, _file, signal) => load(id, 1, signal, false, true),
     loadAll: (id, _file, signal) => load(id, 1, signal, true, false),
     reloadAll: (id, _file, signal) => load(id, 1, signal, true, true),
+    prepareRenderer: (id, signal, rendererId, observedVersion, reload = false) => {
+      if (signal.aborted) return;
+      if (reload) actions.reset(id);
+      actions.loading(id, 'renderer', observedVersion, rendererId);
+    },
     dispose() {for (const read of generations.values()) read.abort(); for (const [signal, forget] of lifetimes) {signal.removeEventListener('abort', forget); forget();}},
   };
 }

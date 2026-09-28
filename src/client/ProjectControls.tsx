@@ -1,5 +1,5 @@
 import {useEffect, useId, useRef, useState, type ComponentProps, type ReactNode} from 'react';
-import {Button, DisclosureRow, IconChevronDownOutline14, IconChevronRightOutline14, IconPlusOutline16, Menu, Modal, Switch} from '@deepseek-ai/dsh-client-ui-primitives';
+import {Button, DisclosureRow, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconPlusOutlineRegular, Menu, Modal, Switch} from '@deepseek-ai/dsh-client-ui-primitives';
 
 interface SelectOption<T extends string> {value: T; label: string}
 type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
@@ -45,7 +45,7 @@ export function ProjectSettingsCard({title, description, children, disabled = fa
         <span className="project-settings-card-title" id={`${id}-title`}>{title}</span>
         <span className="project-settings-card-description" id={`${id}-description`}>{description}</span>
       </span>
-      <IconChevronDownOutline14 className="project-settings-card-chevron" />
+      <IconChevronDownOutlineRegular size={14} className="project-settings-card-chevron" />
     </Button>
     {/* Keep fields mounted so collapsing retains draft values and native validation. */}
     <div className="project-settings-card-body" id={`${id}-body`} hidden={!open}>{children}</div>
@@ -83,21 +83,21 @@ export function ProjectSelect<T extends string>({label, value, options, onChange
         aria-label={`${label}: ${selected?.label ?? value}`} aria-haspopup="menu" aria-expanded={open && !disabled}
         onClick={() => setOpen(current => !current)}
         onKeyDown={event => {if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {event.preventDefault(); setOpen(true);}}}>
-        <span>{selected?.label ?? value}</span><IconChevronDownOutline14 />
+        <span>{selected?.label ?? value}</span><IconChevronDownOutlineRegular size={14} />
       </Button>} />
   </span>;
 }
 
 /** Official ModelsSection add-provider affordance, using the shared Button and plus icon. */
 export function ProjectAddButton({children, ...props}: Omit<ComponentProps<typeof Button>, 'className' | 'variant' | 'size' | 'icon'>) {
-  return <Button {...props} variant="outline" className="project-add-button" icon={<IconPlusOutline16 size={14} />}>{children}</Button>;
+  return <Button {...props} variant="outline" className="project-add-button" icon={<IconPlusOutlineRegular size={14} />}>{children}</Button>;
 }
 
 /** Keep collapsed form fields mounted while the official DisclosureRow owns the toggle. */
 export function ProjectDisclosure({title, children, disabled = false}: {title: string; children: ReactNode; disabled?: boolean}) {
   const [open, setOpen] = useState(false);
   return <div className="project-disclosure">
-    <DisclosureRow title={title} icon={<IconChevronRightOutline14 />} open={open} expandable={!disabled}
+    <DisclosureRow title={title} icon={<IconChevronRightOutlineRegular size={14} />} open={open} expandable={!disabled}
       expandOnRowClick previewChevron={false} onToggle={() => setOpen(value => !value)} />
     <div className="project-disclosure-content" hidden={!open}>{children}</div>
   </div>;

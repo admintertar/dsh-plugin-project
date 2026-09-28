@@ -1,5 +1,5 @@
 import {useRef, useState} from 'react';
-import {Button, IconSearchOutline16, Input, Tag} from '@deepseek-ai/dsh-client-ui-primitives';
+import {Button, IconSearchOutlineRegular, Input, Tag} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ProjectCapabilityController} from './controller.ts';
 import {CapabilityError, CatalogContext, useCapability, type CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectScrollableModal} from './ProjectControls.tsx';
@@ -16,7 +16,7 @@ export function ToolsPanel({controller, t}: {controller: ProjectCapabilityContro
   return <>
     <CapabilityError error={state.error} t={t} /><CatalogContext context={state.data?.context} t={t} />
     <p>{t('toolsBody')}</p>
-    <div className="project-capability-toolbar"><Input icon={<IconSearchOutline16 />} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('searchTools')} aria-label={t('searchTools')} />
+    <div className="project-capability-toolbar"><Input icon={<IconSearchOutlineRegular />} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('searchTools')} aria-label={t('searchTools')} />
       {state.loading && <span role="status">{t('capabilityLoading')}</span>}</div>
     {state.data?.context.kind === 'session' && tools.length === 0 && <p>{t(needle ? 'noMatchingTools' : 'emptyTools')}</p>}
     {(['project', 'mcp', 'dsh'] as const).map(group => {

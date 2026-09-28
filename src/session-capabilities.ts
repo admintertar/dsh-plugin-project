@@ -1,8 +1,8 @@
 import type {Context} from '@deepseek-ai/cordis';
-import type {} from '@deepseek-ai/dsh-agent-presets';
+import type {} from '@deepseek-ai/dsh-agent-preset-registry';
 import type {} from '@deepseek-ai/dsh-session-query';
 import type {SessionId} from '@deepseek-ai/dsh-session';
-import type {ScopeKey} from '@deepseek-ai/dsh-scope';
+import {createScope, scopeOf, type ScopeKey} from '@deepseek-ai/dsh-scope';
 import type {CapabilityContext} from './api-types.ts';
 import {ProjectHttpError} from './http.ts';
 
@@ -11,7 +11,7 @@ export async function sessionCapabilities(ctx: Context, root: string, url: strin
   const params = new URL(url ?? '/', 'http://localhost').searchParams;
   const sessionId = params.get('sessionId');
   if (sessionId === null) return {context: {kind: 'project'} as CapabilityContext, scope: undefined,
-    skills: ctx.skills, tools: ctx.tools};
+    skills: ctx.skills, tools: ctx.tools, dispose: async () => {}};
   // DSH Session IDs are opaque strings. Keep the decoded value unchanged;
   // the official reader resolves identity and the header check enforces ownership.
   if (params.getAll('sessionId').length !== 1 || sessionId.length === 0) {
@@ -36,17 +36,25 @@ export async function sessionCapabilities(ctx: Context, root: string, url: strin
   }
   const live = ctx.get('agents')?.get(sessionId as SessionId);
   const presets = ctx.get('agentPresets');
-  let scope: ScopeKey | undefined = live;
+  // The old registry exposed standingKeyFor. The new registry exposes mount:
+  // bind a temporary scoped context to the recorded preset, read its catalog,
+  // and release that binding after the response is built. This does not start
+  // an Agent or change the stopped Session.
+  let probe: ReturnType<typeof createScope> | undefined;
   if (!live && presets) {
-    try {scope = await presets.standingKeyFor(agentPreset);}
-    catch {throw new ProjectHttpError(503, 'catalog-unavailable');}
+    probe = createScope(ctx, {});
+    try {await presets.mount(probe.ctx, agentPreset);}
+    catch {await probe.dispose(); throw new ProjectHttpError(503, 'catalog-unavailable');}
   }
+  const agent = live ?? (probe === undefined ? undefined : {ctx: probe.ctx});
+  const scope: ScopeKey | undefined = agent === undefined ? undefined : scopeOf(agent.ctx);
   // A missing recorded preset must not silently become the global catalog.
   if (!live && !presets && agentPreset) throw new ProjectHttpError(503, 'catalog-unavailable');
   return {
     context: {kind: 'session', sessionId, agentPreset: agentPreset ?? presets?.defaultId} as CapabilityContext,
     scope,
-    skills: (live ? presets?.serviceFor(live, 'skills') : undefined) ?? ctx.skills,
-    tools: (live ? presets?.serviceFor(live, 'tools') : undefined) ?? ctx.tools,
+    skills: (agent ? presets?.serviceFor(agent, 'skills') : undefined) ?? ctx.skills,
+    tools: (agent ? presets?.serviceFor(agent, 'tools') : undefined) ?? ctx.tools,
+    dispose: async () => {await probe?.dispose();},
   };
 }

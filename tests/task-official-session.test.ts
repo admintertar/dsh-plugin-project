@@ -83,8 +83,9 @@ test('official Session client filters create payload, retries the published iden
     createSession: async (cwd, id) => {await sessions.create({workspaceId: 'project-workspace' as never, cwd, sessionId: SessionId(id)});},
     readTask: async id => {events.push('read'); return tasks.get(id);},
     input: id => {
+      const reference = sessions.retain(SessionId(id), {source: 'workspaceOperation'});
       assert.ok(sessions.scope(SessionId(id)), 'official scope must resolve as soon as create returns');
-      return {draft: () => draft, setDraft: text => {events.push('draft'); draft = text;}};
+      return {draft: () => draft, setDraft: text => {events.push('draft'); draft = text;}, release: () => reference.release()};
     },
     draft: task => `Read ${task.id} and verify current state before continuing.`,
     openSession: id => {events.push(`open:${id}`);}, id: () => `new-${++sequence}`,
@@ -131,7 +132,9 @@ test('official Session list includes cold project records and makes their client
     await new Promise<void>(resolve => queueMicrotask(resolve));
     assert.equal(sessions.list.getSnapshot().byId[cold.id]?.cwd, root);
     assert.equal(sessions.list.getSnapshot().byId[cold.id]?.running, false);
+    const reference = sessions.retain(cold.id, {source: 'workspaceOperation'});
     assert.ok(sessions.scope(cold.id));
+    reference.release();
     assert.equal(host.sessions.get(cold.id), undefined, 'listing and resolving a client scope must not activate the Host Session');
   } finally {
     await client.fiber.dispose();

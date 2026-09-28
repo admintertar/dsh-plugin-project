@@ -7,16 +7,20 @@ import {
   nextProjectSessionOrder,
   projectSessionRows,
   projectSessionSearch,
+  selectedSessionId,
   sanitizeProjectSessionQuery,
 } from '../src/client/session-browser.ts';
 
 const sid = (value: string) => value as SessionId;
 const summary = (id: string, partial: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: sid(id), displayTitle: id, cwd: '/project', running: false, blank: false, updatedAt: 0, ...partial,
+  id: sid(id), displayTitle: id, cwd: '/project', running: false, blank: false, updatedAt: 0,
+  ...partial, retainedBy: partial.retainedBy ?? {},
 });
 const sessionList = (items: readonly SessionSummary[], current?: SessionId): SessionListState => ({
-  ids: items.map(item => item.id), byId: Object.fromEntries(items.map(item => [item.id, item])),
-  current, phase: 'ready', subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
+  ids: items.map(item => item.id), byId: Object.fromEntries(items.map(item => [item.id, {
+    ...item, retainedBy: {...item.retainedBy, ...(item.id === current ? {mainView: 1} : {})},
+  }])),
+  phase: 'ready', projectionsBySession: {},
 });
 
 test('project session browser keeps only visible sessions from the Project root', () => {

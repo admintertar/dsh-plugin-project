@@ -1,5 +1,5 @@
 import {useSyncExternalStore} from 'react';
-import {Button, FileTypeIcon, classifyFileType, IconBranchOutline16} from '@deepseek-ai/dsh-client-ui-primitives';
+import {Button, FileTypeIcon, classifyFileType, IconBranchOutlineRegular} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {TaskSidebarRequest} from './task-sidebar-controller.ts';
 import type {ProjectCapabilityController} from './controller.ts';
 import {CapabilityError, type CapabilityTranslate} from './capability-ui.tsx';
@@ -36,7 +36,7 @@ export function TaskMaterialGuide({controller, openFile, t}: {
         <ul>{task.artifacts.map((item, index) => <li key={index}>
           {item.type === 'file' ? file(item.path, item.description ?? item.path.split('/').pop()!, 'artifact', index, !!detail.artifactPaths[index])
             : item.type === 'url' ? safeUrl(item.url) ? <a href={safeUrl(item.url)} target="_blank" rel="noopener noreferrer">{item.description ?? item.url}</a> : <span>{item.description ?? item.url}</span>
-              : item.type === 'commit' ? <><Button variant="outline" className="project-task-material-file" icon={<IconBranchOutline16 />}
+              : item.type === 'commit' ? <><Button variant="outline" className="project-task-material-file" icon={<IconBranchOutlineRegular />}
                 disabled={view.detailLoading || !!view.detailError} aria-label={t('taskCommitOpen', {commit: item.commit.slice(0, 12)})}
                 onClick={event => openFile({id: task.id, index, revision: task.revision, kind: 'commit', repository: item.repository,
                   commit: item.commit, title: item.description ?? item.commit.slice(0, 12)}, event.currentTarget)}><span>{item.description ?? item.commit.slice(0, 12)}</span></Button><small className="project-meta">{item.commit.slice(0, 12)}</small></>

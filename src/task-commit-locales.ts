@@ -1,4 +1,5 @@
 export const taskCommitEn = {
+  taskCommitCodeLabel: 'Code', taskCommitWrapLabel: 'Wrap lines', taskCommitUnwrapLabel: 'Do not wrap lines',
   taskCommitPreview: 'Commit preview', taskCommitOpen: 'Preview commit {commit}', taskCommitRemote: 'Open on remote',
   taskCommitFetch: 'Fetch commit and retry', taskCommitFetching: 'Fetching commit…',
   taskCommitMissing: 'This commit is not available in the local resource yet. Fetch it to preview its changes.',
@@ -25,6 +26,7 @@ export const taskCommitEn = {
   taskCommitCollapse: 'Collapse changes', taskCommitExpand: 'Show {count} more lines', taskCommitDiffFiles: '{count} file(s)',
 };
 export const taskCommitZh: Record<keyof typeof taskCommitEn, string> = {
+  taskCommitCodeLabel: '代码', taskCommitWrapLabel: '自动换行', taskCommitUnwrapLabel: '不换行',
   taskCommitPreview: '提交预览', taskCommitOpen: '预览提交 {commit}', taskCommitRemote: '在远端打开',
   taskCommitFetch: '获取提交并重试', taskCommitFetching: '正在获取提交…',
   taskCommitMissing: '本地资源中尚无此提交，获取后即可预览变更。',

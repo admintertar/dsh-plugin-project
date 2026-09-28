@@ -1,5 +1,5 @@
 import {useEffect, type ComponentType} from 'react';
-import {FileTypeIcon, classifyFileType, IconBranchOutline16} from '@deepseek-ai/dsh-client-ui-primitives';
+import {FileTypeIcon, classifyFileType, IconBranchOutlineRegular} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {Context} from '@deepseek-ai/cordis';
 import type {PropsRenderSlots, SlotMap} from '@deepseek-ai/dsh-client-ui-slots';
 import type {RightbarSeatProps, SidebarRightInjected, UseSidebarRightTabInfo} from '@deepseek-ai/dsh-client-ui-sidebar-right/client';
@@ -45,7 +45,7 @@ function TaskFileSidebar({sidebar, official: OfficialSidebar, tabInfo, capabilit
     if (name === 'sidebar.right.tab.menu.item') return null;
     const request = sidebar.request(options.hookContext.tabId);
     if (request?.kind === 'commit') {
-      if (name === 'sidebar.right.pane.tab.title') return <><IconBranchOutline16 /><span>{request.commit.slice(0, 12)}</span></>;
+      if (name === 'sidebar.right.pane.tab.title') return <><IconBranchOutlineRegular /><span>{request.commit.slice(0, 12)}</span></>;
       return <TaskCommitPreview view={capabilities.taskCommitView(request, sidebar.occurrence({id: options.hookContext.tabId}).signal)} t={projectText} />;
     }
     if (name === 'sidebar.right.pane.tab.title') return request
@@ -78,7 +78,8 @@ export function createTaskSidebar(ctx: Context, capabilities: ProjectCapabilityC
     syncPresentation: ({shown, track, fullscreen}) => {if (shown) ctx.layout.openRightbar(track, fullscreen); else ctx.layout.closeRightbar();},
     bindService: () => () => {}, // Never bind this root store to the Session controller.
     openTab: sidebar.openTab, closeTab: sidebar.closeTab, occurrence: sidebar.occurrence,
-    hooks: {tabTypes: {getSnapshot: () => tabTypes, subscribe: () => () => {}}},
+    splitPane: paneId => sidebar.splitPane(paneId), toggleFullscreen: () => sidebar.toggleFullscreen(),
+    hooks: {shortcuts: ctx.shortcuts.catalog, tabTypes: {getSnapshot: () => tabTypes, subscribe: () => () => {}}},
     keyedHooks: {tabNavigation: id => sidebar.occurrence({id: id as never}).navigation},
   };
   ctx.slots.inject('project.task.sidebar-toggle', () => ctx.slots.register({
