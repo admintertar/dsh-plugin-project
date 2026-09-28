@@ -56,7 +56,7 @@ import {MergeConflictController, type MergeConflictRequest, type MergeConflictRe
 import {ProjectPanelTransition} from './panel-transition.ts';
 import {createPickDirectory, type PickDirectory} from './pick-directory.ts';
 
-export const inject = ['slots', 'sessions', 'layout', 'workspaces', 'uiWorkspace', 'locale', 'sidebarRight', 'remote', 'conversation', 'documentPreviews'];
+export const inject = ['slots', 'sessions', 'layout', 'workspaces', 'uiWorkspace', 'locale', 'sidebarRight', 'remote', 'conversation', 'documentPreviews', 'shortcuts'];
 interface State {project?: ProjectView; error?: string; busy: boolean}
 interface Controller {
   capabilities: ProjectCapabilityController;
