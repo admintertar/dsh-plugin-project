@@ -15,7 +15,7 @@ import SessionQuery from '@deepseek-ai/dsh-session-query';
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl';
 import SkillRegistry from '@deepseek-ai/dsh-skill';
 import ToolRuntime from '@deepseek-ai/dsh-tools';
-import {createScope, bindScopeParent} from '@deepseek-ai/dsh-scope';
+import {createScope, bindScopeParent, scopeOf} from '@deepseek-ai/dsh-scope';
 import type {WebRoute} from '@deepseek-ai/dsh-host-webserver';
 import {createProjectFile} from '../src/project-files.ts';
 import {createProjectMemory, deleteProjectMemory, readProject, updateProjectMemory} from '../src/project.ts';
@@ -514,6 +514,7 @@ function sessionCatalogFixture(ctx: Context, root: string) {
   let released = 0;
   const keys = {standard: {}, minimal: {}};
   const scopes = {standard: createScope(ctx, keys.standard), minimal: createScope(ctx, keys.minimal)};
+  const mounted = new Map<object, keyof typeof scopes>();
   const live: {ctx: Context} = {ctx: scopes.standard.ctx};
   let active = false;
   ctx.provide('agents', {get: () => active ? live : undefined} as unknown as Context['agents']);
@@ -522,17 +523,21 @@ function sessionCatalogFixture(ctx: Context, root: string) {
     return {header: {cwd: id === 'foreign' ? tmpdir() : root}, projections: {values: {agentPreset: preset}},
       [Symbol.dispose]: () => {released++;}};
   }} as unknown as Context['sessionQuery']);
-  ctx.provide('agentPresets', {defaultId: 'standard', standingKeyFor: async (id: string) => {
+  ctx.provide('agentPresets', {defaultId: 'standard', mount: async (inner: Context, id: string) => {
     mounts++;
     if (id !== 'standard' && id !== 'minimal') throw new Error('bad preset private-fixture');
-    return keys[id];
-  }, serviceFor: (_agent: unknown, name: 'skills' | 'tools') => live.ctx.get(name)} as unknown as Context['agentPresets']);
+    const key = scopeOf(inner)!;
+    bindScopeParent(key, keys[id]);
+    mounted.set(key, id);
+    return {id};
+  }, serviceFor: (agent: {ctx: Context}, name: 'skills' | 'tools') =>
+    (mounted.has(scopeOf(agent.ctx)!) ? scopes[mounted.get(scopeOf(agent.ctx)!)!].ctx : agent.ctx).get(name)} as unknown as Context['agentPresets']);
   const register = (target: Context, name: string, description = name) => target.get('tools')!.register({
     name, description, parameters: {type: 'object', properties: {}}, output: {schema: {type: 'null'}, render: () => []},
     async execute() {throw new Error('catalogs must not execute a tool');},
   });
   return {scopes, register, get mounts() {return mounts;}, get released() {return released;},
-    select: (id: string) => {preset = id;}, activate: (inner: Context) => {live.ctx = inner; active = true; bindScopeParent(live, keys.standard);}};
+    select: (id: string) => {preset = id;}, activate: (inner: Context) => {live.ctx = inner; active = true;}};
 }
 
 test('session catalogs include preset skills, tool restrictions and shadowing without creating Agents', async () => {
@@ -561,7 +566,7 @@ test('session catalogs include preset skills, tool restrictions and shadowing wi
     assert.equal(skills.inherited[0].source, 'bundled');
     assert.equal(skills.inherited[0].readonly, true);
     c.select('minimal');
-    assert.deepEqual((await (await f.get('tools?sessionId=cold')).json()).tools.map((t: {name: string}) => t.name), ['shell']);
+    assert.deepEqual((await (await f.get('tools?sessionId=cold')).json()).tools.map((t: {name: string}) => t.name), []);
     assert.deepEqual((await (await f.get('skills?sessionId=cold')).json()).inherited.map((s: {name: string}) => s.name), ['minimal-skill']);
     assert.equal(f.ctx.sessions.list().length, 0, 'catalog reads did not create a Session');
     assert.equal(c.mounts, c.released);

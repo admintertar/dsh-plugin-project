@@ -1,5 +1,5 @@
 import {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type SetStateAction} from 'react';
-import {Button, IconSearchOutline16, Input, Tag, writeClipboard} from '@deepseek-ai/dsh-client-ui-primitives';
+import {Button, IconSearchOutlineRegular, Input, Tag, writeClipboard} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {TaskSidebarRequest} from './task-sidebar-controller.ts';
 import type {TaskDetail} from '../api-types.ts';
 import type {ProjectTaskDiagnostic, ProjectTaskStatus, TaskEntry, TaskRecord, TaskReference} from '../task-contract.ts';
@@ -199,7 +199,7 @@ export function TasksPanel({controller, t, openSession, startSession, sessionTit
       {(state.error === 'task-cursor-conflict' || state.error === 'task-revision-conflict') && <Button variant="outline" size="sm" onClick={() => {resetQuery(); void controller.refresh('tasks');}}>{t('taskRefresh')}</Button>}
     </p> : <CapabilityError error={error} t={t} />}
     <div className="project-capability-toolbar project-task-toolbar">
-      <Input icon={<IconSearchOutline16 />} value={query} onChange={event => {setQuery(event.target.value); resetQuery();}} placeholder={t('searchTasks')} aria-label={t('searchTasks')} />
+      <Input icon={<IconSearchOutlineRegular />} value={query} onChange={event => {setQuery(event.target.value); resetQuery();}} placeholder={t('searchTasks')} aria-label={t('searchTasks')} />
       <ProjectSelect label={t('allStatuses')} value={filter} onChange={value => {setFilter(value); resetQuery();}}
         options={[{value: 'all', label: t('allStatuses')}, ...Object.entries(statusKeys).map(([value, key]) => ({value: value as ProjectTaskStatus, label: t(key)}))]} />
       <div className="project-toolbar-toggle"><span>{t('showArchived')}</span><ProjectSwitch checked={showArchived} onChange={value => {setShowArchived(value); resetQuery();}} label={t('showArchived')} /></div>

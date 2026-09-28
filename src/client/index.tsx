@@ -1,12 +1,12 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {managedResources} from '../resource-scope.ts';
 import {
-  Button, HoverCard, Input, Menu, Modal, ReferenceIcon, StateDot, Tag, Tooltip,
-  IconAlarmClockOutline16, IconArchiveOutline20, IconBranchOutline16, IconCloseFill14,
-  IconEditOutline16, IconEllipsisOutline16, IconFolderOpenOutline16, IconNewChatOutline16,
-  IconApiOutline14, IconListPenOutline16, IconSkillOutline16,
-  IconPersonalizationOutline16, IconRefreshOutline16,
-  IconSearchOutline16, relativeTime, type StateDotState,
+  Button, HoverCard, Input, Menu, Modal, ReferenceIconRegular, StateDot, Tag, Tooltip,
+  IconAlarmClockOutlineRegular, IconArchiveOutlineRegular, IconBranchOutlineRegular, IconCloseFillRegular,
+  IconEditOutlineRegular, IconEllipsisOutlineRegular, IconFolderOpenOutlineRegular, IconNewChatOutlineRegular,
+  IconApiOutlineRegular, IconListPenOutlineRegular, IconSkillOutlineRegular,
+  IconPersonalizationOutlineRegular, IconRefreshOutlineRegular,
+  IconSearchOutlineRegular, relativeTime, type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { Context } from '@deepseek-ai/cordis';
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
@@ -30,7 +30,7 @@ import {bindProjectSidebarControls} from './sidebar-controls.ts';
 import {bindProjectPanelCount, projectPanelCount, projectPanelDisplayCount} from './sidebar-counts.ts';
 import {
   nextProjectSessionOrder, projectSessionDropAnchor, projectSessionRows, projectSessionSearch,
-  sanitizeProjectSessionQuery, type ProjectSessionOrder,
+  sanitizeProjectSessionQuery, selectedSessionId, type ProjectSessionOrder,
 } from './session-browser.ts';
 import {createProjectSessionViewStore} from './session-browser-store.ts';
 import { styles } from './styles.ts';
@@ -41,7 +41,7 @@ import {registerTaskPreview} from './task-preview.tsx';
 import {createTaskSidebar} from './TaskFileSidebar.tsx';
 import {SkillsPanel} from './SkillsPanel.tsx';
 import {ToolsPanel} from './ToolsPanel.tsx';
-import type {} from '@deepseek-ai/dsh-agent-presets/types';
+import type {} from '@deepseek-ai/dsh-agent-preset-registry';
 import {McpPanel} from './McpPanel.tsx';
 import {MemoryPanel} from './MemoryPanel.tsx';
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client';
@@ -56,7 +56,7 @@ import {MergeConflictController, type MergeConflictRequest, type MergeConflictRe
 import {ProjectPanelTransition} from './panel-transition.ts';
 import {createPickDirectory, type PickDirectory} from './pick-directory.ts';
 
-export const inject = ['slots', 'sessions', 'layout', 'workspaces', 'uiWorkspace', 'locale', 'sidebarRight', 'remote', 'conversation', 'documentPreviews'];
+export const inject = ['slots', 'sessions', 'layout', 'workspaces', 'uiWorkspace', 'locale', 'sidebarRight', 'remote', 'conversation', 'documentPreviews', 'shortcuts'];
 interface State {project?: ProjectView; error?: string; busy: boolean}
 interface Controller {
   capabilities: ProjectCapabilityController;
@@ -97,7 +97,8 @@ export async function apply(ctx: Context): Promise<void> {
   if (native.enabled) {
     const select = async (mode: string) => {
       const snapshot = sessions.list.getSnapshot();
-      const current = snapshot.current ? snapshot.byId[snapshot.current] : undefined;
+      const selected = selectedSessionId(snapshot);
+      const current = selected ? snapshot.byId[selected] : undefined;
       const directory = current?.cwd ?? ctx.workspaces.list.getSnapshot().items[0]?.path;
       const response = await fetch('/api/project/windows', {method: 'POST', headers: {'content-type': 'application/json'},
         body: JSON.stringify({action: 'presentation', mode, directory})});
@@ -148,12 +149,14 @@ export async function apply(ctx: Context): Promise<void> {
     await sessions.create({workspaceId: workspace.workspaceId, cwd: root, sessionId: sessionId as SessionId});
   };
   const projectSessionInput = (id: string) => {
+    const reference = sessions.retain(id as SessionId, {source: 'workspaceOperation'});
     const scope = sessions.scope(id as SessionId);
-    if (!scope) throw new Error('project-session-unavailable');
+    if (!scope) {reference.release(); throw new Error('project-session-unavailable');}
     const input = ctx.conversation.input.for(scope);
     return {draft: () => input.state.getSnapshot().draft, setDraft: (text: string) => input.setDraft(text),
       canFill: () => {const state = input.state.getSnapshot(); return state.phase === 'plain' && state.attachmentIds.length === 0;},
-      notifyPreserved: (text: string) => input.notify('info', `${t('taskDraftPreservedNotice')}\n\n${text}`)};
+      notifyPreserved: (text: string) => input.notify('info', `${t('taskDraftPreservedNotice')}\n\n${text}`),
+      release: () => reference.release()};
   };
   const continuation = new TaskContinuationController({
     project: () => state.project,
@@ -306,7 +309,7 @@ export async function apply(ctx: Context): Promise<void> {
   ctx.effect(() => ctx.workspaces.list.subscribe(() => update({})), 'project: navigation availability');
   ctx.effect(() => {
     const syncSession = () => {
-      capabilities.setSession(sessions.list.getSnapshot().current ?? undefined);
+      capabilities.setSession(selectedSessionId(sessions.list.getSnapshot()) ?? undefined);
       update({}); // Cold history can arrive after Task detail while current is unchanged.
     };
     const remove = sessions.list.subscribe(syncSession);
@@ -314,7 +317,7 @@ export async function apply(ctx: Context): Promise<void> {
     return remove;
   }, 'project: active session catalogs');
   ctx.remote.$on('agent-preset/selected', (id) => {
-    if (id === sessions.list.getSnapshot().current) capabilities.invalidateCatalogs();
+    if (id === selectedSessionId(sessions.list.getSnapshot())) capabilities.invalidateCatalogs();
   });
   ctx.on('connection/reset', () => capabilities.invalidateCatalogs());
   void capabilities.refreshAll();
@@ -336,7 +339,7 @@ function ProjectBrandMark({t, controller, size}: PropsRuntime<'sidebar.brand.mar
     return bindProjectSidebarControls(mark.current, {overviewLabelId: labelId, canStart,
       showOverview: () => controller.show(initialPanel), startSession: () => {void controller.start();}});
   }, [controller, labelId, canStart]);
-  return <span ref={mark} className="project-brand-mark"><IconFolderOpenOutline16 size={size} />
+  return <span ref={mark} className="project-brand-mark"><IconFolderOpenOutlineRegular size={size} />
     <span id={labelId} className="project-visually-hidden">{t('overview')} · {project?.name ?? t('loading')}</span>
   </span>;
 }
@@ -372,13 +375,13 @@ function ProjectPanelIcon({controller, view, size}: ProjectPanelIconProps) {
     if (anchor.current === null) return;
     return bindProjectPanelCount(anchor.current, count, size === 16);
   }, [count, size]);
-  const icon = view === 'overview' ? <IconFolderOpenOutline16 size={size} />
-    : view === 'resources' ? <ReferenceIcon kind="folder" size={size} />
-      : view === 'memory' ? <ReferenceIcon kind="file" size={size} />
-        : view === 'tasks' ? <IconListPenOutline16 size={size} />
-          : view === 'skills' ? <IconSkillOutline16 size={size} />
-            : view === 'tools' ? <IconPersonalizationOutline16 size={size} />
-              : <IconApiOutline14 size={size} />;
+  const icon = view === 'overview' ? <IconFolderOpenOutlineRegular size={size} />
+    : view === 'resources' ? <ReferenceIconRegular kind="folder" size={size} />
+      : view === 'memory' ? <ReferenceIconRegular kind="file" size={size} />
+        : view === 'tasks' ? <IconListPenOutlineRegular size={size} />
+          : view === 'skills' ? <IconSkillOutlineRegular size={size} />
+            : view === 'tools' ? <IconPersonalizationOutlineRegular size={size} />
+              : <IconApiOutlineRegular size={size} />;
   return <span ref={anchor} className="project-panel-icon">{icon}</span>;
 }
 
@@ -444,7 +447,7 @@ function runningSubagentCounts(byId: Readonly<Record<SessionId, SessionSummary>>
 
 /** Official Session status precedence: attention, activity, descendants, completion, idle. */
 function projectSessionStatuses(
-  session: SessionSummary, pending: PendingKind | undefined, runningSubagents: number, t: ProjectTranslate,
+  session: SessionSummary, pending: PendingKind | undefined, runningSubagents: number, completed: boolean, t: ProjectTranslate,
 ): readonly [ProjectSessionStatus, ...ProjectSessionStatus[]] {
   const descendant = runningSubagents === 0 ? undefined : {
     state: 'ongoing' as const,
@@ -461,7 +464,7 @@ function projectSessionStatuses(
     return descendant === undefined ? [running] : [running, descendant];
   }
   if (descendant !== undefined) return [descendant];
-  if (session.completed === true) return [{state: 'done', label: t('statusCompleted')}];
+  if (completed) return [{state: 'done', label: t('statusCompleted')}];
   // Official rows model idle as a hidden `done` dot; the label remains
   // available in the hover card and to assistive technology.
   return [{state: 'done', label: t('statusIdle')}];
@@ -508,17 +511,17 @@ function ProjectOrderMenu({orderBy, onPick, t}: {
     dense
     portal
     anchor={<Tooltip label={t('viewOptions')} side="bottom" delayMs={500}>
-      <button type="button" className="project-session-icon-button" aria-label={t('viewOptions')} onClick={() => {setOpen(value => !value);}}><IconPersonalizationOutline16 /></button>
+      <button type="button" className="project-session-icon-button" aria-label={t('viewOptions')} onClick={() => {setOpen(value => !value);}}><IconPersonalizationOutlineRegular /></button>
     </Tooltip>}
   />;
 }
 
 /** One official-style Project Session row, without a surrounding Workspace row. */
 function ProjectSessionRow({
-  session, selected, pending, runningSubagents, now, draggable, dragActive, marker,
+  session, selected, pending, runningSubagents, completed, now, draggable, dragActive, marker,
   onOpen, onRename, onFork, onArchive, onReveal, onDragStart, onDragHover, onDrop, onDragEnd, t,
 }: {
-  session: SessionSummary; selected: boolean; pending?: PendingKind; runningSubagents: number; now: number;
+  session: SessionSummary; selected: boolean; pending?: PendingKind; runningSubagents: number; completed: boolean; now: number;
   draggable: boolean; dragActive: boolean; marker: 'before' | 'after' | null;
   onOpen(): void; onRename(): void; onFork(): void; onArchive(): void;
   onReveal?: (() => void) | undefined;
@@ -533,9 +536,9 @@ function ProjectSessionRow({
     onReveal();
   }, [onReveal]);
   const title = session.blank ? t('newSession') : session.displayTitle;
-  const statuses = projectSessionStatuses(session, pending, runningSubagents, t);
+  const statuses = projectSessionStatuses(session, pending, runningSubagents, completed, t);
   const primary = statuses[0];
-  const showStatus = primary.state !== 'done' || session.completed === true;
+  const showStatus = primary.state !== 'done' || completed;
   const schedule = session.projectionValues as {schedule?: readonly unknown[]} | undefined;
   const hasSchedule = (schedule?.schedule?.length ?? 0) > 0;
   const ownRow = <div
@@ -565,15 +568,15 @@ function ProjectSessionRow({
   >
     {showStatus && <span className="project-session-status"><StateDot state={primary.state} />{statuses.map(status => <span className="project-visually-hidden" key={status.label}>{status.label}</span>)}</span>}
     <span className={`project-session-title${showStatus ? '' : ' no-status'}`}>{title}</span>
-    {hasSchedule && <span className="project-session-schedule" role="img" aria-label={t('scheduleActive')} title={t('scheduleActive')}><IconAlarmClockOutline16 /></span>}
+    {hasSchedule && <span className="project-session-schedule" role="img" aria-label={t('scheduleActive')} title={t('scheduleActive')}><IconAlarmClockOutlineRegular /></span>}
     {!session.blank && <span className="project-session-time">{projectSessionTime(session.updatedAt, now, t)}</span>}
     {!session.blank && <span className="project-session-actions"><Menu
       open={menuOpen}
       onClose={() => {setMenuOpen(false);}}
       items={[
-        {id: 'rename', label: t('rename'), icon: <IconEditOutline16 />},
-        {id: 'fork', label: t('forkSession'), icon: <IconBranchOutline16 />},
-        {id: 'archive', label: t('archiveSession'), icon: <IconArchiveOutline20 size={16} />},
+        {id: 'rename', label: t('rename'), icon: <IconEditOutlineRegular />},
+        {id: 'fork', label: t('forkSession'), icon: <IconBranchOutlineRegular />},
+        {id: 'archive', label: t('archiveSession'), icon: <IconArchiveOutlineRegular size={16} />},
       ]}
       onSelect={id => {
         setMenuOpen(false);
@@ -583,7 +586,7 @@ function ProjectSessionRow({
       }}
       portal
       closeOnPointerLeave
-      anchor={<button type="button" className="project-session-row-action" aria-label={t('sessionActions', {name: title})} onClick={event => {event.stopPropagation(); setMenuOpen(value => !value);}}><IconEllipsisOutline16 /></button>}
+      anchor={<button type="button" className="project-session-row-action" aria-label={t('sessionActions', {name: title})} onClick={event => {event.stopPropagation(); setMenuOpen(value => !value);}}><IconEllipsisOutlineRegular /></button>}
     /></span>}
   </div>;
   return <HoverCard
@@ -597,19 +600,19 @@ function ProjectSessionRow({
 }
 
 /** Compact search result copied from the official flat browser without Workspace metadata. */
-function ProjectSearchResult({session, snippet, selected, pending, runningSubagents, onOpen, t}: {
+function ProjectSearchResult({session, snippet, selected, pending, runningSubagents, completed, onOpen, t}: {
   session: SessionSummary; snippet?: string; selected: boolean; pending?: PendingKind;
-  runningSubagents: number; onOpen(): void; t: ProjectTranslate;
+  runningSubagents: number; completed: boolean; onOpen(): void; t: ProjectTranslate;
 }) {
-  const statuses = projectSessionStatuses(session, pending, runningSubagents, t);
+  const statuses = projectSessionStatuses(session, pending, runningSubagents, completed, t);
   const primary = statuses[0];
   const schedule = session.projectionValues as {schedule?: readonly unknown[]} | undefined;
   const hasSchedule = (schedule?.schedule?.length ?? 0) > 0;
   return <button type="button" className={`project-session-search-result${selected ? ' selected' : ''}`} role="treeitem" aria-selected={selected} onClick={onOpen}>
     <span className="project-session-search-heading">
-      <span className="project-session-status">{(primary.state !== 'done' || session.completed === true) && <><StateDot state={primary.state} />{statuses.map(status => <span className="project-visually-hidden" key={status.label}>{status.label}</span>)}</>}</span>
+      <span className="project-session-status">{(primary.state !== 'done' || completed) && <><StateDot state={primary.state} />{statuses.map(status => <span className="project-visually-hidden" key={status.label}>{status.label}</span>)}</>}</span>
       <span className="project-session-search-title">{session.displayTitle}</span>
-      {hasSchedule && <span className="project-session-schedule search" role="img" aria-label={t('scheduleActive')} title={t('scheduleActive')}><IconAlarmClockOutline16 /></span>}
+      {hasSchedule && <span className="project-session-schedule search" role="img" aria-label={t('scheduleActive')} title={t('scheduleActive')}><IconAlarmClockOutlineRegular /></span>}
     </span>
     {snippet !== undefined && <span className="project-session-search-meta"><span className="project-session-search-snippet">{snippet}</span></span>}
   </button>;
@@ -621,13 +624,13 @@ function ProjectSearchResult({session, snippet, selected, pending, runningSubage
  * constrained to `session.cwd === project.root`.
  */
 function ProjectSessionBrowser({
-  t, controller, wide, expandSidebar, usePanelInfo, useSessions, useWorkspaces, useSessionPendingInteraction,
+  t, controller, wide, expandSidebar, usePanelInfo, useSessions, useWorkspaces, useSessionStatus,
   useStore, actions,
 }: ProjectSessionBrowserProps) {
   const {project, error} = useProject(controller);
   const list = useSessions(snapshot => snapshot);
   const workspaces = useWorkspaces(snapshot => snapshot);
-  const pendingInteractions = useSessionPendingInteraction(snapshot => snapshot);
+  const sessionStatuses = useSessionStatus(snapshot => snapshot);
   const panelActive = usePanelInfo(info => info.activePanelId !== null);
   const projectRoot = project?.root;
   const orderBy = useStore(state => state.orderBy);
@@ -658,10 +661,11 @@ function ProjectSessionBrowser({
       actions.syncSessionOrder(projectRoot, next.order.map(id => id as string), next.updatedAt);
     }
   }, [actions.syncSessionOrder, baseRows, list.phase, orderBy, projectRoot, storedOrder, storedUpdatedAt]);
-  const currentBlankSessionId = projectRoot === undefined || list.current === undefined
-    || list.byId[list.current]?.blank !== true || list.byId[list.current]?.cwd !== projectRoot
+  const selectedId = selectedSessionId(list);
+  const currentBlankSessionId = projectRoot === undefined || selectedId === undefined
+    || list.byId[selectedId]?.blank !== true || list.byId[selectedId]?.cwd !== projectRoot
     ? undefined
-    : list.current;
+    : selectedId;
   useEffect(() => {
     if (projectRoot === undefined || currentBlankSessionId === undefined || storedOrder?.[0] === currentBlankSessionId) return;
     actions.setSessionOrder(projectRoot, [
@@ -781,7 +785,7 @@ function ProjectSessionBrowser({
         className={`project-session-search${searchExpanded ? ' expanded' : ''}`}
         onClick={() => {setSearchExpanded(true); searchInput.current?.focus();}}
       >
-        <Tooltip label={t('searchSessions')} side="bottom" delayMs={500} disabled={searchExpanded}><button type="button" className="project-session-search-button" aria-label={t('searchSessions')} aria-expanded={searchExpanded} onClick={() => {setSearchExpanded(true);}}><IconSearchOutline16 size={searchExpanded ? 11 : 14} /></button></Tooltip>
+        <Tooltip label={t('searchSessions')} side="bottom" delayMs={500} disabled={searchExpanded}><button type="button" className="project-session-search-button" aria-label={t('searchSessions')} aria-expanded={searchExpanded} onClick={() => {setSearchExpanded(true);}}><IconSearchOutlineRegular size={searchExpanded ? 11 : 14} /></button></Tooltip>
         <input
           ref={searchInput}
           className="project-session-search-input"
@@ -793,10 +797,10 @@ function ProjectSessionBrowser({
           onChange={event => {setQuery(sanitizeProjectSessionQuery(event.target.value));}}
           onKeyDown={event => {if (event.key === 'Escape') {setQuery(''); setSearchExpanded(false);}}}
         />
-        {searchExpanded && <button type="button" className="project-session-search-clear" aria-label={t('searchClear')} onClick={event => {event.stopPropagation(); setQuery(''); setSearchExpanded(false);}}><IconCloseFill14 /></button>}
+        {searchExpanded && <button type="button" className="project-session-search-clear" aria-label={t('searchClear')} onClick={event => {event.stopPropagation(); setQuery(''); setSearchExpanded(false);}}><IconCloseFillRegular size={14} /></button>}
       </div></div>
       <div className={`project-session-header-actions${searchExpanded ? ' hidden' : ''}`}><ProjectOrderMenu orderBy={orderBy} onPick={actions.setOrderBy} t={t} /></div>
-    </div> : <div className="project-session-rail-search"><Tooltip label={t('searchSessions')}><button type="button" className="project-session-search-button" aria-label={t('searchSessions')} onClick={() => {setSearchExpanded(true); setSearchOnExpand(true); expandSidebar();}}><IconSearchOutline16 size={18} /></button></Tooltip></div>}
+    </div> : <div className="project-session-rail-search"><Tooltip label={t('searchSessions')}><button type="button" className="project-session-search-button" aria-label={t('searchSessions')} onClick={() => {setSearchExpanded(true); setSearchOnExpand(true); expandSidebar();}}><IconSearchOutlineRegular size={18} /></button></Tooltip></div>}
 
     <div className="project-session-list-area">
       {wide && <div className="project-session-tree-body">
@@ -806,8 +810,9 @@ function ProjectSessionBrowser({
               key={item.session.id}
               session={item.session}
               snippet={item.snippet}
-              selected={!panelActive && item.session.id === list.current}
-              pending={visiblePendingKind(pendingInteractions.get(item.session.id)?.kind)}
+              selected={!panelActive && item.session.id === selectedSessionId(list)}
+              pending={visiblePendingKind(sessionStatuses.get(item.session.id)?.pendingInteraction?.kind)}
+              completed={sessionStatuses.get(item.session.id)?.completionUnread === true}
               runningSubagents={runningDescendants.get(item.session.id) ?? 0}
               onOpen={() => {openSearchResult(item.session.id);}}
               t={t}
@@ -823,8 +828,9 @@ function ProjectSessionBrowser({
               return <ProjectSessionRow
                 key={session.id}
                 session={session}
-                selected={!panelActive && session.id === list.current}
-                pending={visiblePendingKind(pendingInteractions.get(session.id)?.kind)}
+                selected={!panelActive && session.id === selectedSessionId(list)}
+                pending={visiblePendingKind(sessionStatuses.get(session.id)?.pendingInteraction?.kind)}
+                completed={sessionStatuses.get(session.id)?.completionUnread === true}
                 runningSubagents={runningDescendants.get(session.id) ?? 0}
                 now={now}
                 draggable
@@ -893,11 +899,11 @@ function ProjectPanel({controller, view, t, renderSlot}: {controller: Controller
   const definition = PROJECT_PANELS.find(panel => panel.view === view)!;
   const resourceCount = managedResources(project.resources, project.root).length;
   return <main className={`project-panel${view === 'tasks' ? ' project-tasks-panel' : ''}`}>
-    <header><div><p className="project-eyebrow">{t('projectMode')} · {project.id}</p><h1>{view === 'overview' ? project.name : t(definition.label)}</h1><p>{project.description}</p></div><div className="project-panel-actions"><Button variant="outline" size="sm" icon={<IconRefreshOutline16 />} onClick={() => {void controller.refresh(); if (view === 'resources' || view === 'overview') {controller.resources.clearError(); void controller.resources.refresh();} if (view === 'overview') {controller.changes.clearError(); void controller.changes.refresh();} if (view === 'tasks' || view === 'skills' || view === 'tools' || view === 'mcp') void controller.capabilities.refresh(view);}}>{t('refresh')}</Button>{view === 'tasks' && renderSlot('project.task.sidebar-toggle', {})}</div></header>
+    <header><div><p className="project-eyebrow">{t('projectMode')} · {project.id}</p><h1>{view === 'overview' ? project.name : t(definition.label)}</h1><p>{project.description}</p></div><div className="project-panel-actions"><Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular />} onClick={() => {void controller.refresh(); if (view === 'resources' || view === 'overview') {controller.resources.clearError(); void controller.resources.refresh();} if (view === 'overview') {controller.changes.clearError(); void controller.changes.refresh();} if (view === 'tasks' || view === 'skills' || view === 'tools' || view === 'mcp') void controller.capabilities.refresh(view);}}>{t('refresh')}</Button>{view === 'tasks' && renderSlot('project.task.sidebar-toggle', {})}</div></header>
     {error && <p role="alert" className="project-error">{error}</p>}
     {view === 'overview' && <>
       <div className="project-summary"><Tag tone="neutral">{t(resourceCount === 1 ? 'resourceCountOne' : 'resourcesCount', {count: resourceCount})}</Tag><Tag tone="neutral">{t(project.memory.length === 1 ? 'memoryCountOne' : 'memoryCount', {count: project.memory.length})}</Tag></div>
-      <section className="project-card"><h2>{t('environment')}</h2><p>{t('environmentBody')}</p><code>{project.root}</code><div className="project-card-actions"><Button variant="primary" icon={<IconNewChatOutline16 />} disabled={busy} onClick={() => void controller.start()}>{busy ? t('creating') : t('startSession')}</Button></div></section>
+      <section className="project-card"><h2>{t('environment')}</h2><p>{t('environmentBody')}</p><code>{project.root}</code><div className="project-card-actions"><Button variant="primary" icon={<IconNewChatOutlineRegular />} disabled={busy} onClick={() => void controller.start()}>{busy ? t('creating') : t('startSession')}</Button></div></section>
     </>}
     {view === 'overview' && <section><ProjectChangesPanel controller={controller.changes} root={project.root} t={t} handoffConflict={controller.handoffMergeConflict} /></section>}
     {view === 'overview' && <section><div className="project-card-top"><h2>{t('resources')}</h2><Button variant="outline" size="sm" onClick={() => controller.show('project.resources' as MainPanelId)}>{t('resourceManage')}</Button></div><ResourcesOverview controller={controller.resources} resources={project.resources} root={project.root} t={t} /></section>}

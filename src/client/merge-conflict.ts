@@ -13,7 +13,7 @@ export interface MergeConflictDependencies {
   project(): {id: string; root: string} | undefined;
   beginNavigation(): AbortSignal;
   createSession(root: string, sessionId: string): Promise<void>;
-  input(sessionId: string): {draft(): string; canFill?(): boolean; setDraft(text: string): void; notifyPreserved?(text: string): void};
+  input(sessionId: string): {draft(): string; canFill?(): boolean; setDraft(text: string): void; notifyPreserved?(text: string): void; release?(): void};
   draft(request: MergeConflictRequest, project: {root: string}): string;
   openSession(sessionId: string): void;
   id?(): string;
@@ -51,6 +51,7 @@ export class MergeConflictController {
       }
       if (!valid()) return {sessionId: preparation.sessionId, cancelled: true};
       const input = this.dependencies.input(preparation.sessionId);
+      try {
       const draftPreserved = input.draft().length > 0 || input.canFill?.() === false;
       const suggestedDraft = this.dependencies.draft(request, project);
       if (!draftPreserved) input.setDraft(suggestedDraft);
@@ -58,6 +59,7 @@ export class MergeConflictController {
       this.dependencies.openSession(preparation.sessionId);
       this.preparations.delete(key);
       return {sessionId: preparation.sessionId, draftPreserved};
+      } finally {input.release?.();}
     };
     preparation.pending = operation().finally(() => {preparation.pending = undefined;});
     return preparation.pending;

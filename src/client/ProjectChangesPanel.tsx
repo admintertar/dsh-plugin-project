@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {Button, IconBranchOutline16, IconDownloadOutline16, IconRefreshOutline16, IconRightUpOutline16, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
+import {Button, IconBranchOutlineRegular, IconDownloadOutlineRegular, IconRefreshOutlineRegular, IconRightUpOutlineRegular, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ResourceBranches} from '../resource-contract.ts';
 import type {ProjectChangeEntry, ProjectChangeKind, ProjectChangesSnapshot} from '../project-changes.ts';
 import type {ProjectLocaleKey} from '../locales.ts';
@@ -79,13 +79,13 @@ function RepositoryDetails({open, root, data, branches, controller, busy, action
   return <ProjectScrollableModal open={open} title={t('changeRepositoryDetails')} closeLabel={t('close')} onClose={onClose}
     footer={<>
       <Button variant="outline" disabled={busy}
-        icon={action === 'check' ? <span className="project-spinner" /> : <IconRefreshOutline16 />}
+        icon={action === 'check' ? <span className="project-spinner" /> : <IconRefreshOutlineRegular />}
         onClick={() => void controller.sync('check', data.revision)}>{action === 'check' ? t('resourceSyncChecking') : t('resourceSyncCheck')}</Button>
       {(behind || action === 'update') && <Button variant="outline" disabled={busy || !updatable}
-        icon={action === 'update' ? <span className="project-spinner" /> : <IconDownloadOutline16 />}
+        icon={action === 'update' ? <span className="project-spinner" /> : <IconDownloadOutlineRegular />}
         onClick={onUpdate}>{action === 'update' ? t('resourceSyncUpdating') : t('resourceSyncUpdate')}</Button>}
       {(data.sync?.ahead ?? 0) > 0 && <Button variant="outline" disabled={busy}
-        icon={action === 'push' ? <span className="project-spinner" /> : <IconRightUpOutline16 />}
+        icon={action === 'push' ? <span className="project-spinner" /> : <IconRightUpOutlineRegular />}
         onClick={() => void controller.sync('push', data.revision)}>{action === 'push' ? t('resourceSyncPushing') : t('resourceSyncPush')}</Button>}
       <Button variant="primary" autoFocus onClick={onClose}>{t('close')}</Button>
     </>}>
@@ -161,12 +161,12 @@ export function ProjectChangesPanel({controller, root, t, handoffConflict}: {con
       {data?.available === true && summary !== undefined && <Tooltip label={resourceSyncTooltip(data.sync, summary.label, resourceSyncDescription(data.sync, t), t)} side="bottom" maxWidth={480}>
         <button type="button" className="project-change-repository"
           aria-haspopup="dialog" aria-label={t('changeRepositoryDetails')} onClick={() => setDetails(true)}>
-          {data.branch !== undefined && <span className="project-resource-branch"><IconBranchOutline16 /><span>{data.branch}</span></span>}
+          {data.branch !== undefined && <span className="project-resource-branch"><IconBranchOutlineRegular /><span>{data.branch}</span></span>}
           <Tag tone={summary.tone}>{summary.label}</Tag>
         </button>
       </Tooltip>}
     </div>
-    <Button variant="outline" size="sm" icon={<IconRefreshOutline16 />}
+    <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular />}
       onClick={() => {controller.clearError(); void controller.refresh();}}>{t('refresh')}</Button>
   </div>;
   if (!data) return <>{heading}{state.error

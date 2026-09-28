@@ -119,6 +119,7 @@ export function registerProjectApi(ctx: Context, read: () => ProjectView, capabi
   };
   register('skills', ['GET', 'POST'], async req => {
     const catalog = await sessionCapabilities(ctx, read().root, req.url);
+    try {
     if (req.method === 'GET') {await skillQueue.wait(); return skillSnapshot(catalog);}
     const action = skillAction.parse(await readJsonBody(req));
     return skillQueue.run(async () => {
@@ -130,9 +131,11 @@ export function registerProjectApi(ctx: Context, read: () => ProjectView, capabi
       }
       return skillSnapshot(catalog);
     });
+    } finally {await catalog.dispose();}
   });
   register('tools', ['GET'], async req => {
     const catalog = await sessionCapabilities(ctx, read().root, req.url);
+    try {
     const projectNames = new Set(['project_task_create', 'project_task_list', 'project_task_get', 'project_task_update', 'project_task_bind',
       'project_memory_create', 'project_memory_list', 'project_memory_update', 'project_memory_delete']);
     const tools: ProjectToolView[] = catalog.context.kind === 'project' ? [] : catalog.tools.schemas(catalog.scope)
@@ -141,6 +144,7 @@ export function registerProjectApi(ctx: Context, read: () => ProjectView, capabi
       .sort((a, b) => a.name.localeCompare(b.name));
     const data = {context: catalog.context, tools};
     return {...data, version: version(data)} satisfies ToolsSnapshot;
+    } finally {await catalog.dispose();}
   });
   register('mcp', ['GET', 'POST'], async req => {
     read();

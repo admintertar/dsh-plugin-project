@@ -1,5 +1,5 @@
 import {useEffect, useId, useRef, useState, type ReactNode} from 'react';
-import {Button, IconBranchOutline16, IconCheckOutline16, IconDownloadOutline16, IconFolderOpenOutline16, IconLinkOutline16, IconRefreshOutline16, IconRightUpOutline16, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
+import {Button, IconBranchOutlineRegular, IconCheckOutlineRegular, IconDownloadOutlineRegular, IconFolderOpenOutlineRegular, IconLinkOutlineRegular, IconRefreshOutlineRegular, IconRightUpOutlineRegular, Modal, Tag, Tooltip} from '@deepseek-ai/dsh-client-ui-primitives';
 import type {ManagedResource, ResourceBranches, ResourceChangeStatus, ResourceChanges} from '../resource-contract.ts';
 import type {CapabilityTranslate} from './capability-ui.tsx';
 import {ProjectScrollableModal, ProjectSelect, ProjectSettingRow} from './ProjectControls.tsx';
@@ -101,25 +101,25 @@ export function ResourceCard({item, root, t, children, syncActions, syncError}: 
         <div className="project-summary"><Tag>{item.type === 'git' ? 'Git' : t('resourceLocal')}</Tag>
           <Tooltip label={gitReady ? resourceSyncTooltip(sync, label, syncDescription, t) : label} side="top"><span className="project-resource-sync-label"><Tag tone={tone}>{label}</Tag></span></Tooltip>
           {item.git?.branch && <Tooltip label={`${t('resourceCurrentBranch')}: ${item.git.branch}`} side="top">
-            <span className="project-resource-branch"><IconBranchOutline16 /><span>{item.git.branch}</span></span>
+            <span className="project-resource-branch"><IconBranchOutlineRegular /><span>{item.git.branch}</span></span>
           </Tooltip>}
         </div>
-        <ResourceMetadata icon={<IconFolderOpenOutline16 />} text={directoryLabel(item, root, t)}
+        <ResourceMetadata icon={<IconFolderOpenOutlineRegular />} text={directoryLabel(item, root, t)}
           tooltip={`${t('resourceDirectory')}: ${item.path ?? t('resourceUnbound')}${item.external ? ` · ${t('resourceExternal')}` : ''}`} />
-        {item.url && <ResourceMetadata icon={<IconLinkOutline16 />} text={repositoryLabel(item.url)} tooltip={`${t('resourceUrl')}: ${item.url}`} />}
+        {item.url && <ResourceMetadata icon={<IconLinkOutlineRegular />} text={repositoryLabel(item.url)} tooltip={`${t('resourceUrl')}: ${item.url}`} />}
       </div>
       <div className="project-mcp-card-footer">
         <Button className="project-resource-details-action" size="sm" aria-haspopup="dialog" aria-label={`${t('resourceDetails')}: ${item.name}`}
           onClick={event => showDetails(event.currentTarget)}>{t('resourceViewDetails')}</Button>
         {syncActions && <>
           {canCheckResource(item) && <Tooltip label={t('resourceSyncCheck')} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
-            icon={<IconRefreshOutline16 />} aria-label={`${t('resourceSyncCheck')}: ${item.name}`} disabled={syncActions.disabled} onClick={syncActions.check} /></span></Tooltip>}
+            icon={<IconRefreshOutlineRegular />} aria-label={`${t('resourceSyncCheck')}: ${item.name}`} disabled={syncActions.disabled} onClick={syncActions.check} /></span></Tooltip>}
           <Tooltip label={canUpdateResource(sync) ? t('resourceSyncUpdate') : syncDescription} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
-            icon={<IconDownloadOutline16 />} aria-label={`${t('resourceSyncUpdate')}: ${item.name}`} disabled={syncActions.disabled || !canUpdateResource(sync)} onClick={syncActions.update} /></span></Tooltip>
+            icon={<IconDownloadOutlineRegular />} aria-label={`${t('resourceSyncUpdate')}: ${item.name}`} disabled={syncActions.disabled || !canUpdateResource(sync)} onClick={syncActions.update} /></span></Tooltip>
           {canCommitResource(sync) && <Tooltip label={t('resourceSyncCommit')} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
-            icon={<IconCheckOutline16 />} aria-label={`${t('resourceSyncCommit')}: ${item.name}`} disabled={syncActions.disabled} onClick={event => openCommit(event.currentTarget)} /></span></Tooltip>}
+            icon={<IconCheckOutlineRegular />} aria-label={`${t('resourceSyncCommit')}: ${item.name}`} disabled={syncActions.disabled} onClick={event => openCommit(event.currentTarget)} /></span></Tooltip>}
           {canPushResource(sync) && <Tooltip label={t('resourceSyncPush')} side="top"><span className="project-mcp-action-anchor"><Button className="project-mcp-action" size="sm"
-            icon={<IconRightUpOutline16 />} aria-label={`${t('resourceSyncPush')}: ${item.name}`} disabled={syncActions.disabled} onClick={syncActions.push} /></span></Tooltip>}
+            icon={<IconRightUpOutlineRegular />} aria-label={`${t('resourceSyncPush')}: ${item.name}`} disabled={syncActions.disabled} onClick={syncActions.push} /></span></Tooltip>}
         </>}
         {children}
       </div>

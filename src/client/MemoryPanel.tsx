@@ -1,6 +1,6 @@
 import {useEffect, useId, useMemo, useState} from 'react';
 import {
-  Button, IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconTrashOutline16, Input, MarkdownText, Modal, Tooltip,
+  Button, IconCheckOutlineRegular, IconCloseOutlineRegular, IconEditOutlineRegular, IconTrashOutlineRegular, Input, MarkdownText, Modal, Tooltip,
   type MarkdownLabels,
 } from '@deepseek-ai/dsh-client-ui-primitives';
 import type {PropsLocale} from '@deepseek-ai/dsh-client-ui-slots';
@@ -53,11 +53,11 @@ function MemoryDocument({item, labels, save, onRemove, disabled, t}: {
       <h2>{item.name}</h2>
       {!editing && <div className="project-memory-actions">
         <Tooltip label={t('edit')} side="top" delayMs={400} disabled={disabled}><span className="project-memory-action-anchor">
-          <Button size="sm" icon={<IconEditOutline16 />} disabled={disabled}
+          <Button size="sm" icon={<IconEditOutlineRegular />} disabled={disabled}
             aria-label={t('editMemory', {name: item.name})} onClick={() => {setDraft(item.content); setError(undefined); setEditing(true);}} />
         </span></Tooltip>
         <Tooltip label={t('delete')} side="top" delayMs={400} disabled={disabled}><span className="project-memory-action-anchor">
-          <Button size="sm" icon={<IconTrashOutline16 />} disabled={disabled}
+          <Button size="sm" icon={<IconTrashOutlineRegular />} disabled={disabled}
             aria-label={t('deleteMemory', {name: item.name})} onClick={() => onRemove(item)} />
         </span></Tooltip>
       </div>}
@@ -70,8 +70,8 @@ function MemoryDocument({item, labels, save, onRemove, disabled, t}: {
       <div className="project-memory-editor-footer">
         <span className={bytes > MEMORY_BYTES_LIMIT ? 'project-error' : undefined}>{t('memorySize', {count: bytes.toLocaleString()})}</span>
         <div className="project-memory-editor-actions">
-          <Button type="button" variant="outline" icon={<IconCloseOutline16 />} disabled={saving} onClick={cancel}>{t('cancel')}</Button>
-          <Button type="submit" variant="primary" icon={<IconCheckOutline16 />} disabled={saving || draft === item.content || bytes > MEMORY_BYTES_LIMIT}>
+          <Button type="button" variant="outline" icon={<IconCloseOutlineRegular />} disabled={saving} onClick={cancel}>{t('cancel')}</Button>
+          <Button type="submit" variant="primary" icon={<IconCheckOutlineRegular />} disabled={saving || draft === item.content || bytes > MEMORY_BYTES_LIMIT}>
             {t(saving ? 'saving' : 'save')}
           </Button>
         </div>

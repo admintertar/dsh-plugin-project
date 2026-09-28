@@ -20,6 +20,7 @@ export class TaskSidebarController {
   private unsubscribe?: () => void;
   private files = new Map<string, TaskSidebarRequest>();
   private occurrences = new Map<TabId, {value: TabOccurrence; abort: AbortController}>();
+  private commands = new Map<TabId, Parameters<TabOccurrence['tabActions']['bindCommands']>[0]>();
   private opener?: HTMLElement;
   private expanded = false;
 
@@ -40,18 +41,25 @@ export class TaskSidebarController {
     const layout = this.instance?.getSnapshot().bySession[TASK_PREVIEW_SCOPE]?.layout;
     const tabs = layout?.tabs ?? {};
     for (const [id, occurrence] of this.occurrences) if (!tabs[id]) {
-      occurrence.abort.abort(); this.occurrences.delete(id);
+      occurrence.abort.abort(); this.occurrences.delete(id); this.commands.delete(id);
     }
     for (const tab of Object.values(tabs)) if (!this.occurrences.has(tab.id)) {
       const abort = new AbortController();
+      const thisController = this;
       const placement = (options?: {paneId?: PaneId; replaceTab?: boolean; revealIfOpened?: boolean}) => ({
         paneId: options?.paneId ?? (options?.replaceTab ? undefined : findTabPane(this.instance!.getSnapshot().bySession[TASK_PREVIEW_SCOPE]!.layout, tab.id)?.id),
         replaceTab: options?.replaceTab ? tab.id : undefined, revealIfOpened: options?.revealIfOpened,
       });
       this.occurrences.set(tab.id, {abort, value: {
+        id: crypto.randomUUID() as TabOccurrence['id'],
+        get commands() {return thisController.commands.get(tab.id) ?? {};},
         sessionId: TASK_PREVIEW_SCOPE as SessionId, tabId: tab.id, signal: abort.signal,
         navigation: createSnapshotStore({address: tab.contentId, revision: 1, params: undefined}),
         tabActions: {
+          bindCommands: commands => {
+            this.commands.set(tab.id, commands);
+            return () => {if (this.commands.get(tab.id) === commands) this.commands.delete(tab.id);};
+          },
           close: () => this.closeTab(tab.id),
           openResource: (address, options) => {
             const file = this.files.get(address);
@@ -92,6 +100,12 @@ export class TaskSidebarController {
   }
   closeTab = (id: TabId) => {this.instance?.actions.closeTab(TASK_PREVIEW_SCOPE, id);};
   collapse = () => {this.instance?.actions.setExpanded(TASK_PREVIEW_SCOPE, false);};
+  splitPane = (paneId: PaneId) => {this.instance?.actions.splitPane(TASK_PREVIEW_SCOPE, paneId);};
+  toggleFullscreen = () => {
+    const layout = this.instance?.getSnapshot().bySession[TASK_PREVIEW_SCOPE]?.layout;
+    if (!layout?.expanded) return;
+    this.instance?.actions.setMode(TASK_PREVIEW_SCOPE, layout.mode === 'fullscreen' ? 'push' : 'fullscreen');
+  };
   occurrence = (tab: {id: TabId}): TabOccurrence => {
     const occurrence = this.occurrences.get(tab.id);
     if (!occurrence) throw new Error('task-preview-unavailable');
@@ -104,6 +118,6 @@ export class TaskSidebarController {
   dispose() {
     this.unsubscribe?.();
     for (const occurrence of this.occurrences.values()) occurrence.abort.abort();
-    this.occurrences.clear(); this.files.clear(); this.instance = undefined;
+    this.occurrences.clear(); this.commands.clear(); this.files.clear(); this.instance = undefined;
   }
 }
