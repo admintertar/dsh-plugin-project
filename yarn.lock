@@ -453,7 +453,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@deepseek-ai/schemastery@npm:~3.18.4":
+"@deepseek-ai/schemastery@npm:3.18.4, @deepseek-ai/schemastery@npm:~3.18.4":
   version: 3.18.4
   resolution: "@deepseek-ai/schemastery@npm:3.18.4"
   dependencies:
@@ -1211,6 +1211,7 @@ __metadata:
     "@deepseek-ai/dsh-timeout": "npm:0.1.7-rc.2"
     "@deepseek-ai/dsh-tool-present": "npm:0.1.7-rc.2"
     "@deepseek-ai/dsh-tools": "npm:0.1.7-rc.2"
+    "@deepseek-ai/schemastery": "npm:3.18.4"
     "@modelcontextprotocol/sdk": "npm:1.30.0"
     "@types/node": "npm:22.18.6"
     "@types/react": "npm:18.3.24"
@@ -1230,6 +1231,7 @@ __metadata:
     "@deepseek-ai/dsh-attachment": 0.1.7-rc.2
     "@deepseek-ai/dsh-home-paths": 0.1.7-rc.2
     "@deepseek-ai/dsh-mcp-client": 0.1.7-rc.2
+    "@deepseek-ai/dsh-scope": 0.1.7-rc.2
     "@deepseek-ai/dsh-session": 0.1.7-rc.2
     "@deepseek-ai/dsh-skill": 0.1.7-rc.2
     "@deepseek-ai/dsh-skill-filesystem": 0.1.7-rc.2
@@ -1237,6 +1239,7 @@ __metadata:
     "@deepseek-ai/dsh-timeout": 0.1.7-rc.2
     "@deepseek-ai/dsh-tool-present": 0.1.7-rc.2
     "@deepseek-ai/dsh-tools": 0.1.7-rc.2
+    "@deepseek-ai/schemastery": 3.18.4
   dependenciesMeta:
     esbuild:
       built: true
