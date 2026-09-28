@@ -84,6 +84,7 @@ export function createTaskSidebar(ctx: Context, capabilities: ProjectCapabilityC
   };
   ctx.slots.inject('project.task.sidebar-toggle', () => ctx.slots.register({
     name: 'project.task.sidebar-toggle', store: sidebar.store, locale: 'sidebarRight',
+    inject: () => ({hooks: {shortcuts: ctx.shortcuts.catalog}}),
   }, (props: Pick<RightbarSeatProps, 'useStore'|'actions'|'t'>) => <OfficialExpand {...props} sessionId={TASK_PREVIEW_SCOPE as never} />));
   ctx.effect(() => () => sidebar.dispose(), 'project: task Sidebar lifetime');
   return Object.assign(sidebar, {mount: () => ctx.slots.register({
