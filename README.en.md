@@ -17,23 +17,25 @@ This repository owns the in-project features. The companion **dsh-project-deskto
 
 ## Compatibility and status
 
-Early development; only the `stable` channel is supported: Desktop **2.0.11** and Harness **0.1.5-rc.2**. Exact revisions are in [upstream.json](upstream.json). Stable names a release channel, not a long-term API guarantee. Beta is outside the current support scope.
+This migration branch targets DeepSeek's official Desktop / Harness **0.2.0-rc.2**. The exact commit and source tree are in [upstream.json](upstream.json). The companion Shell is still being migrated, so this branch is not a publishable Stable release.
 
 This independently maintained project is not an official DeepSeek or Anywhere Labs product. Original project code currently has **no open-source license grant**.
 
 ## Local development
 
-Requires Node.js `^22.19.0 || >=24.0.0`, Corepack, Git and tar. Run from this repository:
+Requires Node.js `^22.19.0 || >=24.0.0`, Corepack, Git and pnpm 11.7.0. First install and build the pinned official source, then run setup in this repository:
 
 ```sh
-yarn install --immutable
-git clone --filter=blob:none --no-checkout https://github.com/anywhere-labs/dsh-desktop.git ../dsh-desktop-source
-yarn run setup -- --desktop ../dsh-desktop-source
+git clone https://github.com/deepseek-ai/deepseek-harness.git ../deepseek-harness
+git -C ../deepseek-harness checkout 639ed015397290b3745d163aafe02ffee4aa3f84
+cd ../deepseek-harness && pnpm install --frozen-lockfile && pnpm run build:official
+cd ../dsh-plugin-project && yarn install --immutable
+yarn run setup -- --desktop ../deepseek-harness
 yarn run check
 yarn start
 ```
 
-Setup reads the pinned official Git commit, verifies stable metadata and runtime archive SHA-256 checksums, and installs isolated dependencies under `.dev/`. It does not build or launch the official desktop app or use uncommitted source changes. Run setup after `yarn install --immutable` to obtain the complete matching official development types.
+Setup checks the official checkout HEAD, tag, Desktop tree and `pnpm-lock.yaml`, rejects tracked local edits, and links development packages from that workspace. It does not launch the desktop app. Install and build the official source first; run setup after `yarn install --immutable` to obtain matching development types.
 
 Start defaults to the fictional `examples/demo-web` project and prints the local Web development URL. To select a project and port:
 
@@ -65,8 +67,7 @@ See [project layout](docs/project-layout.md). Both [examples](examples/) are fic
 The plugin supports independent Web development. The companion `dsh-project-desktop` provides the native application and builds a pinned plugin commit. Plugin edits do not automatically replace running project windows.
 
 ```sh
-yarn run setup -- --shell ../dsh-project-desktop
-yarn run test:compatibility -- ../dsh-project-desktop
+# Run desktop compatibility checks after the Shell adopts the official source.
 ```
 
 See [development notes](docs/development.md) for checks, boundaries and platform limitations.

@@ -2,7 +2,7 @@
 import {execFileSync} from 'node:child_process';
 import {existsSync, readFileSync, realpathSync} from 'node:fs';
 import {join, resolve} from 'node:path';
-import {readCompatibilityPin, verifyDesktopRuntime} from './desktop-runtime.ts';
+import {readOfficialPin} from './setup-official-source.ts';
 
 const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf8'));
 
@@ -19,15 +19,14 @@ export function resolveProjectShell(repository: string, supplied?: string): stri
 
 export function readProjectShellRuntime(repository: string, shell: string) {
   const lock = readJson(join(shell, 'upstream.lock.json'));
-  const pin = readCompatibilityPin(repository);
-  if (lock.channel !== 'stable' || lock.desktop?.package !== 'dsh-plugin-desktop') {
-    throw new Error('Only the independent Shell stable channel is supported');
+  const pin = readOfficialPin(repository);
+  if (lock.channel !== 'stable') throw new Error('Only the independent Shell stable channel is supported');
+  if (lock.desktop?.repository !== pin.repository || lock.desktop?.commit !== pin.commit
+    || lock.desktop?.version !== pin.version || lock.desktop?.tree !== pin.desktopTree
+    || lock.desktop?.dependencyLockBlob !== pin.dependencyLockBlob) {
+    throw new Error('Shell has not migrated to the pinned official Desktop source');
   }
-  if (lock.desktop.commit !== pin.desktop.commit || lock.desktop.version !== pin.desktop.version
-    || lock.harness?.version !== pin.harness.stable.version || lock.harness?.commit !== pin.harness.stable.commit) {
-    throw new Error('Shell Desktop / Harness pins differ from plugin upstream.json; validate the upgrade first');
-  }
-  return {shell, lock, ...verifyDesktopRuntime(repository, join(shell, '.upstream/desktop'), 'stable')};
+  return {shell, lock, pin};
 }
 
 export function verifyProjectShell(repository: string, supplied?: string) {

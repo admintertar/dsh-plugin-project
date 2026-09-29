@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { resolveProjectFile } from '../src/project-files.ts';
 import { readProject } from '../src/project.ts';
-import {readCompatibilityPin} from '../src/desktop-runtime.ts';
+import {readOfficialPin, verifyOfficialSource} from '../src/setup-official-source.ts';
 import {migrateProfilePluginLink, prepareProfilePlugin} from '../src/development-plugin.ts';
 
 // Yarn 4 forwards the literal "--" separator to the script (npm swallowed it).
@@ -17,12 +17,15 @@ if (!existsSync('.dev/runtime-source.json')) throw new Error('Run yarn run setup
 const source = JSON.parse(readFileSync('.dev/runtime-source.json', 'utf8'));
 const edition = source.edition ?? 'stable';
 if (edition !== 'stable') throw new Error('Only stable is supported; run yarn run setup with a stable runtime source');
-const expected = readCompatibilityPin(repository).harness[edition];
+const expected = readOfficialPin(repository);
 if (source.version !== expected.version || source.commit !== expected.commit) throw new Error('Development runtime differs from upstream.json; run yarn run setup again');
-const runtime = resolve('.dev/runtime/node_modules');
+verifyOfficialSource(repository, source.desktopSource);
+const runtime = resolve('node_modules');
 if (!existsSync(join(runtime, '@deepseek-ai/dsh/lib/bin.js'))) throw new Error('Run yarn run setup first');
 const projectKey = createHash('sha256').update(manifest).digest('hex').slice(0, 16);
-const projectHome = resolve('.dev/projects', projectKey);
+// Development Profiles from older DSH versions contain package links. Keep
+// them intact and give each pinned official source its own local DSH Home.
+const projectHome = resolve('.dev/projects', expected.commit, projectKey);
 const profile = join(projectHome, 'profiles/web');
 const modules = join(profile, 'node_modules');
 mkdirSync(modules, {recursive: true});

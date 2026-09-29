@@ -7,4 +7,4 @@ await build({entryPoints: ['src/client/index.tsx'], outfile: 'lib/client.js', bu
   footer: {js: 'return module.exports;}});'},
 });
 const pin = JSON.parse(await readFile('upstream.json', 'utf8'));
-await writeFile('lib/build.json', JSON.stringify({desktop: pin.desktop.version, harness: pin.harness}) + '\n');
+await writeFile('lib/build.json', JSON.stringify({desktop: pin.version, harness: pin.version, sourceCommit: pin.commit}) + '\n');

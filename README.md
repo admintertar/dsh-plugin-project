@@ -17,23 +17,25 @@
 
 ## 版本与状态
 
-当前为早期开发版本，只适配 `stable` 通道：Desktop **2.0.11**、Harness **0.1.5-rc.2**。精确提交见 [upstream.json](upstream.json)。stable 是通道名称，不代表上游接口已长期稳定；beta 不属于当前支持范围。
+当前迁移分支的开发基线为 DeepSeek 官方 Desktop / Harness **0.2.0-rc.2**，精确提交及源码树见 [upstream.json](upstream.json)。配套 Shell 仍在迁移中，不能将此分支视为可发布的 Stable 版本。
 
 本项目独立维护，不是 DeepSeek 或 Anywhere Labs 的官方产品。自有代码**暂不授予开源许可**；公开可读与使用许可的区别见下文。
 
 ## 本地开发
 
-需要 Node.js `^22.19.0 || >=24.0.0`、Corepack、Git 和 tar。以下命令在本仓库目录执行：
+需要 Node.js `^22.19.0 || >=24.0.0`、Corepack、Git、pnpm 11.7.0。先在官方仓库的固定提交上安装并构建，再在本仓库执行：
 
 ```sh
-yarn install --immutable
-git clone --filter=blob:none --no-checkout https://github.com/anywhere-labs/dsh-desktop.git ../dsh-desktop-source
-yarn run setup -- --desktop ../dsh-desktop-source
+git clone https://github.com/deepseek-ai/deepseek-harness.git ../deepseek-harness
+git -C ../deepseek-harness checkout 639ed015397290b3745d163aafe02ffee4aa3f84
+cd ../deepseek-harness && pnpm install --frozen-lockfile && pnpm run build:official
+cd ../dsh-plugin-project && yarn install --immutable
+yarn run setup -- --desktop ../deepseek-harness
 yarn run check
 yarn start
 ```
 
-`setup` 只读取锁定的官方 Git 提交，校验 stable 元数据与运行时归档的 SHA-256，并在 `.dev/` 安装独立依赖。它不构建或启动官方桌面应用，也不读取源码目录的未提交修改。`yarn install --immutable` 后需执行 `setup`，才能取得匹配的完整官方开发类型。
+`setup` 检查官方工作树 HEAD、tag、Desktop 源码树和 `pnpm-lock.yaml`，拒绝跟踪文件的本地修改，再把开发包链接到该官方工作区。它不会启动桌面应用；官方依赖安装与构建必须先完成。`yarn install --immutable` 后需执行 `setup`，才能取得匹配的完整官方开发类型。
 
 `yarn start` 默认打开虚构的 `examples/demo-web` 项目，终端打印本机 Web 调试地址。可指定其他项目和端口：
 
@@ -65,8 +67,7 @@ example/
 插件可独立调试；原生桌面体验由 `dsh-project-desktop` 提供。壳通过锁定的插件提交构建，修改插件不会自动替换正在运行的项目窗口。
 
 ```sh
-yarn run setup -- --shell ../dsh-project-desktop
-yarn run test:compatibility -- ../dsh-project-desktop
+# Shell 的官方来源迁移完成后再运行桌面兼容检查
 ```
 
 开发边界、检查命令及平台限制见 [开发说明](docs/development.md)。

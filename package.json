@@ -43,7 +43,6 @@
   },
   "scripts": {
     "setup": "node scripts/check-node.mjs && node scripts/setup.mjs",
-    "setup:official-candidate": "node scripts/check-node.mjs && node scripts/setup-official-candidate.mjs",
     "build": "node scripts/check-node.mjs && node scripts/build.mjs",
     "typecheck": "node scripts/check-node.mjs && tsc --noEmit",
     "test": "node scripts/check-node.mjs && tsx --test tests/*.test.ts",
