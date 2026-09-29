@@ -72,11 +72,14 @@ export function createTaskSidebar(ctx: Context, capabilities: ProjectCapabilityC
   const official = seat.component as ComponentType<RightbarSeatProps>;
   const OfficialExpand = expand.component as ComponentType<Pick<RightbarSeatProps, 'sessionId'|'useStore'|'actions'|'t'>>;
   const tabTypes = Object.freeze([]);
-  // Beta accepts a close hook; stable closes through the same store action
-  // and ignores the extra prop. Store commits release occurrences in both.
+  // Project Tasks owns a root store instead of a Session-backed official
+  // Sidebar service. The official 0.2 seat now reports split measurements and
+  // automatic fullscreen state; those readings belong to the Session service
+  // and therefore have no consumer for this isolated task surface.
   const injected: SidebarRightInjected & {closeTab: TaskSidebarController['closeTab']} = {
     syncPresentation: ({shown, track, fullscreen}) => {if (shown) ctx.layout.openRightbar(track, fullscreen); else ctx.layout.closeRightbar();},
-    bindService: () => () => {}, // Never bind this root store to the Session controller.
+    measureRoom: () => {},
+    reportAutoFullscreen: () => {},
     openTab: sidebar.openTab, closeTab: sidebar.closeTab, occurrence: sidebar.occurrence,
     splitPane: paneId => sidebar.splitPane(paneId), toggleFullscreen: () => sidebar.toggleFullscreen(),
     hooks: {shortcuts: ctx.shortcuts.catalog, tabTypes: {getSnapshot: () => tabTypes, subscribe: () => () => {}}},
