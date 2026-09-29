@@ -9,6 +9,13 @@ notice. Installed dependencies also retain their own package licenses.
 
 Source: https://github.com/deepseek-ai/deepseek-harness
 
+The current development runtime is linked from the official `dsh-v0.2.0-rc.2`
+commit recorded in `upstream.json`. The source checkout, tag, Desktop tree and
+`pnpm-lock.yaml` blob are verified by `scripts/setup.mjs` before packages are
+used. The historical adapter below still names the earlier source it was
+derived from and must be rechecked or removed during the remaining Shell
+migration; it is not a second runtime source.
+
 `src/vendor/dsh-mcp-client/{connection,tools,transport}.ts` derives from
 `deepseek-ai/deepseek-harness` commit `fb2c4b9e698e30edb738bca4cf0618587db7d203`
 (`@deepseek-ai/dsh-mcp-client@0.1.5-rc.2`, `packages/mcp/mcp-client/src`).
