@@ -1,4 +1,4 @@
-/** Project actions for the two controls without slots in DSH 0.1.5-rc.2 SidebarRoot. */
+/** Project actions for the controls without action slots in the official SidebarRoot. */
 export interface ProjectSidebarControls {
   overviewLabelId: string;
   canStart: boolean;
@@ -8,20 +8,26 @@ export interface ProjectSidebarControls {
 
 /**
  * Bind only the enclosing official sidebar, reached from our own brand-mark slot.
- * SidebarRoot owns a logo row followed by its direct New Session button; Tooltip
- * clones that button without wrapping it. Avoid generated CSS names and locale
- * text selectors. Recheck this small DOM contract when upgrading the pinned DSH.
+ * SidebarRoot owns a direct New Session button. On macOS 0.2 the logo row is
+ * preceded by a draggable top strip, and its brand is a plain span; on other
+ * platforms the expanded brand remains a button. Find the root by its owned
+ * workspaces seat instead of assuming the logo row is its first child.
+ * Avoid generated CSS names and locale text selectors.
  */
 export function bindProjectSidebarControls(mark: HTMLElement, actions: ProjectSidebarControls): () => void {
   const markSlot = mark.closest('[data-slot="sidebar.brand.mark"]');
-  const markButton = markSlot?.closest('button');
-  const logoRow = markButton?.parentElement;
-  const sidebar = logoRow?.parentElement;
+  const slotRoot = markSlot?.closest('[data-slot="sidebar"]');
+  let sidebar = markSlot?.parentElement;
+  while (sidebar && sidebar !== slotRoot &&
+    (!sidebar.querySelector(':scope > button') || !sidebar.querySelector('[data-slot="sidebar.workspaces"]'))) {
+    sidebar = sidebar.parentElement;
+  }
   const newSession = sidebar?.querySelector<HTMLButtonElement>(':scope > button');
-  if (!logoRow || !sidebar?.closest('[data-slot="sidebar"]') || sidebar.firstElementChild !== logoRow || !newSession) {
+  if (!slotRoot || !sidebar || sidebar === slotRoot || !newSession) {
     throw new Error('Project sidebar controls require the pinned official SidebarRoot layout');
   }
-  const brand = logoRow.querySelector('[data-slot="sidebar.brand.name"]')?.closest('button');
+  const brandButton = markSlot?.closest('button');
+  const brand = brandButton?.querySelector('[data-slot="sidebar.brand.name"]') ? brandButton : undefined;
   const releases: Array<() => void> = [];
   const intercept = (button: HTMLButtonElement, action: () => void) => {
     const click = (event: MouseEvent) => {

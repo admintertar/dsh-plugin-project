@@ -65,6 +65,35 @@ test('the collapsed mark retains official expansion, while New Session remains p
   } finally {await f.window.happyDOM.close();}
 });
 
+test('macOS 0.2 sidebar top strip and non-button brand leave New Session project-bound', async () => {
+  const window = new Window();
+  try {
+    const document = window.document;
+    document.body.innerHTML = `<div data-slot="sidebar"><div id="official-sidebar">
+      <div data-window-drag><button id="toggle">Toggle</button></div>
+      <div data-window-drag><span id="brand"><span data-slot="sidebar.brand.mark"><span id="mark"></span></span>
+        <span data-slot="sidebar.brand.name">Project</span></span></div>
+      <button id="new">New Session</button><nav></nav>
+      <div><div data-slot="sidebar.workspaces"></div></div><footer></footer>
+    </div></div>`;
+    let projectStarts = 0;
+    let officialStarts = 0;
+    document.body.addEventListener('click', event => {
+      if ((event.target as unknown as HTMLElement).closest('button')?.id === 'new') officialStarts++;
+    });
+    const dispose = bindProjectSidebarControls(document.getElementById('mark')! as unknown as HTMLElement, {
+      overviewLabelId: 'overview-label', canStart: true,
+      showOverview: () => {}, startSession: () => {projectStarts++;},
+    });
+    (document.getElementById('new')! as HappyElement).click();
+    (document.getElementById('brand')! as HappyElement).click();
+    assert.equal(projectStarts, 1);
+    assert.equal(officialStarts, 0);
+    assert.equal(document.getElementById('brand')!.hasAttribute('aria-labelledby'), false);
+    dispose();
+  } finally {await window.happyDOM.close();}
+});
+
 test('loading/busy state blocks new sessions and rebinding does not retain duplicate listeners', async () => {
   const f = fixture();
   try {
