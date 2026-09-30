@@ -68,7 +68,10 @@ html[data-project-panel-switching] .dshDesktopResizeHandle,
 html[data-project-panel-switching] [data-sidebar-right-panel]{transition:none!important}
 /* Match WorkspaceBrowser.list: place the stable themed scrollbar inside the
    existing right inset so all seven pages retain the same content width. */
-.project-panel{height:100%;overflow:auto;scrollbar-gutter:stable;padding:28px clamp(20px,4vw,48px);padding-right:calc(clamp(20px,4vw,48px) - var(--dsh-scrollbar-width,8px));background:var(--dsw-alias-bg-base)}
+.project-panel{height:100%;overflow:auto;scrollbar-gutter:stable;padding:0 clamp(20px,4vw,48px) 28px;padding-right:calc(clamp(20px,4vw,48px) - var(--dsh-scrollbar-width,8px));background:var(--dsw-alias-bg-base)}
+/* 跟随官方 PluginManagerPage：顶部留白属于拖动标题行，按钮等由官方 no-drag 规则排除。 */
+.project-panel>header{padding-top:28px}
+html[data-platform='darwin'] .project-panel>header{padding-top:calc(28px + var(--dsh-frame-top-clearance,0px))}
 .project-panel>header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px}.project-panel>header>div{min-width:0}.project-panel>header>button{flex:none}.project-panel h1{font-size:24px;font-weight:600;line-height:32px;margin:4px 0 8px;overflow-wrap:anywhere}.project-panel h2{font-size:16px;font-weight:600;line-height:24px;margin:0 0 12px}.project-panel h3{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;line-height:22px;margin:16px 0 8px}.project-panel h3 svg{flex:none}.project-panel p{color:var(--dsw-alias-label-secondary);line-height:22px;overflow-wrap:anywhere}
 .project-panel .project-eyebrow{font-size:12px;line-height:18px;margin:0;color:var(--dsw-alias-label-tertiary)}.project-panel section{margin-bottom:24px}.project-summary{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
 .project-card{border:0.5px solid var(--dsw-alias-border-l3);border-radius:12px;padding:20px;min-width:0;background:var(--dsw-alias-bg-layer-1)}.project-card-actions{margin-top:16px}.project-panel code{font-family:var(--ds-font-family-code);font-size:12px;line-height:20px;overflow-wrap:anywhere;color:var(--dsw-alias-label-tertiary)}

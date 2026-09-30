@@ -50,6 +50,12 @@ buttons, switches and modals compose public primitives; textarea, radio and
 checkbox presentation use minimal adaptations where no public primitive is
 exported by the pinned version.
 
+The Project page headers in `src/client/index.tsx` and `styles.ts` follow the
+official 0.2.0-rc.2 `PluginManagerPage` window-drag contract: the header owns
+its top inset and uses `data-window-drag`; macOS adds the frame's top clearance.
+The official Web CSS and drag-region watcher keep controls and overlays
+interactive and refresh native drag geometry; the plugin does not replace them.
+
 The reconnect settings card in `src/client/ProjectControls.tsx` and
 `src/client/styles.ts` adapts the private `PluginCard` presentation from the
 same pinned upstream commit (`packages/client/ui-settings-plugins/src/client`).

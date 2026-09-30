@@ -15,6 +15,14 @@ test('project panel navigation restores Desktop and document geometry without tr
   assert.match(styles, /html\[data-project-panel-switching\] \[data-sidebar-right-panel\]\{transition:none!important\}/);
 });
 
+test('project panel headers own the macOS window drag strip like the official manager page', () => {
+  const source = readFileSync(new URL('../src/client/index.tsx', import.meta.url), 'utf8');
+  assert.match(source, /<header data-window-drag>/);
+  assert.match(styles, /\.project-panel\{height:100%;overflow:auto;scrollbar-gutter:stable;padding:0 clamp\(20px,4vw,48px\) 28px/);
+  assert.match(styles, /\.project-panel>header\{padding-top:28px\}/);
+  assert.match(styles, /html\[data-platform='darwin'\] \.project-panel>header\{padding-top:calc\(28px \+ var\(--dsh-frame-top-clearance,0px\)\)\}/);
+});
+
 test('memory styles provide a responsive Markdown source editor', () => {
   assert.match(styles, /\.project-memory-markdown/);
   assert.match(styles, /\.project-memory-editor textarea/);
