@@ -55,6 +55,7 @@ import {TaskContinuationController, type ContinueTask, type TaskContinuationResu
 import {MergeConflictController, type MergeConflictRequest, type MergeConflictResult} from './merge-conflict.ts';
 import {ProjectPanelTransition} from './panel-transition.ts';
 import {createPickDirectory, type PickDirectory} from './pick-directory.ts';
+import {ProjectWorkspacePicker} from './ProjectWorkspacePicker.tsx';
 
 export const inject = ['slots', 'sessions', 'layout', 'workspaces', 'uiWorkspace', 'locale', 'sidebarRight', 'remote', 'conversation', 'documentPreviews', 'shortcuts'];
 interface State {project?: ProjectView; error?: string; busy: boolean}
@@ -290,6 +291,18 @@ export async function apply(ctx: Context): Promise<void> {
     store: createProjectSessionViewStore(),
     inject: () => ({controller}),
   }, ProjectSessionBrowser));
+  ctx.slots.inject('conversation.hero.workspace', () => {
+    let release: (() => void) | undefined;
+    const sync = () => {
+      // 只有成功识别当前 Project 才收起工作区入口；加载失败或退出 Project 时恢复官方菜单。
+      if (state.project && !release) {
+        release = ctx.slots.register({name: 'conversation.hero.workspace', priority: -100}, ProjectWorkspacePicker);
+      } else if (!state.project && release) {release(); release = undefined;}
+    };
+    const unsubscribe = controller.subscribe(sync);
+    sync();
+    return () => {unsubscribe(); release?.();};
+  });
   ctx.slots.inject('main', function* () {
     for (const definition of PROJECT_PANELS) {
       yield ctx.slots.register({

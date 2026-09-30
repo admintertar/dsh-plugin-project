@@ -44,6 +44,14 @@ search, row composition and ordering behavior from
 directory operations and enforces the current Project-root boundary. Official
 FlatList, Search and SessionNodeItem implementations remain runtime imports.
 
+`ProjectWorkspacePicker.tsx` uses the official 0.2.0-rc.2
+`conversation.hero.workspace` slot and its `anchorRef` contract. A recognized
+Project replaces the picker with an empty occupant and hides only the referenced
+`EmptyHero.WorkspaceChip` button, which ConversationContent renders outside the
+slot. Unloading restores its inline style and the official picker. Agent presets
+and composer behavior remain official; Project session creation still binds the
+current project root.
+
 `ProjectControls.tsx` and `styles.ts` also adapt settings presentation from
 the upstream LanguageRow, ModelsSection and SettingsRoot. Inputs, menus,
 buttons, switches and modals compose public primitives; textarea, radio and
