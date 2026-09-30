@@ -162,7 +162,7 @@ function validatedLimits(options: ProjectSkillServiceOptions): ProjectSkillImpor
  */
 function importManifest(sourceDirectory: string, limits: ProjectSkillImportLimits): ImportManifest {
   const requested = resolve(sourceDirectory);
-  const root = realpathSync(requested);
+  const root = realpathSync.native(requested);
   if (!statSync(root).isDirectory()) throw new Error(`Skill source is not a directory: ${sourceDirectory}`);
   const files: ImportFile[] = [];
   const directories: ImportDirectory[] = [];
@@ -170,7 +170,7 @@ function importManifest(sourceDirectory: string, limits: ProjectSkillImportLimit
 
   const visit = (path: string, relativePath: string, ancestors: ReadonlySet<string>): void => {
     const lexical = lstatSync(path);
-    const canonical = lexical.isSymbolicLink() ? realpathSync(path) : path;
+    const canonical = lexical.isSymbolicLink() ? realpathSync.native(path) : path;
     if (!isWithin(root, canonical)) throw new Error(`Symbolic link points outside the Skill bundle: ${path}`);
     const info = lexical.isSymbolicLink() ? statSync(canonical) : lexical;
     if (info.isDirectory()) {
@@ -243,7 +243,9 @@ export class ProjectSkillService {
 
   constructor(ctx: Context, project: ProjectView, options: ProjectSkillServiceOptions = {}) {
     this.ctx = ctx;
-    this.layout = ensureProjectLayout(project.root);
+    // Official async realpath expands Windows 8.3 names; use that same identity
+    // before comparing provider paths with the Project-owned Skill directory.
+    this.layout = ensureProjectLayout(realpathSync.native(project.root));
     this.providerName = `project-${project.id}`;
     this.limits = validatedLimits(options);
     let delegate!: FileSystemSkillProvider;
@@ -319,7 +321,7 @@ export class ProjectSkillService {
 
   /** Validate and atomically import one complete local `<name>/SKILL.md` bundle. */
   async importBundle(sourceDirectory: string): Promise<ProjectSkillView> {
-    const source = realpathSync(resolve(sourceDirectory));
+    const source = realpathSync.native(resolve(sourceDirectory));
     if (isWithin(this.layout.skills, source) || isWithin(source, this.layout.skills)) {
       throw new Error('Skill source must be outside the Project skills directory');
     }
@@ -395,7 +397,7 @@ export class ProjectSkillService {
     const child = relative(this.layout.skills, resolve(candidate.path));
     const segments = child.split(sep);
     if (segments.length !== 2 || segments[0] !== candidate.name || segments[1] !== 'SKILL.md') return false;
-    try {return isWithin(this.layout.skills, realpathSync(candidate.path));}
+    try {return isWithin(this.layout.skills, realpathSync.native(candidate.path));}
     catch {return false;}
   }
 
